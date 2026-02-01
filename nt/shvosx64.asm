@@ -80,11 +80,12 @@ include ksamd64.inc
         mov     r15, CxR15[rcx]     ;
 
         cli                         ; Disable interrupts
-        push    CxEFlags[rcx]       ; Push RFLAGS on stack
-        popfq                       ; Restore RFLAGS
-        mov     rsp, CxRsp[rcx]     ; Restore old stack
-        push    CxRip[rcx]          ; Push RIP on old stack
+        mov     rsp, CxRsp[rcx]     ; Switch stacks first, so IF is never set
+                                    ; on the hypervisor stack
+        push    CxRip[rcx]          ; Push RIP on target stack
+        push    CxEFlags[rcx]       ; Push RFLAGS on target stack
         mov     rcx, CxRcx[rcx]     ; Restore RCX since we spilled it
+        popfq                       ; Restore RFLAGS
         ret                         ; Restore RIP
     LEAF_END ShvOsRestoreContext2, _TEXT$00
 

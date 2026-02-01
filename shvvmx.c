@@ -503,9 +503,14 @@ ShvVmxSetupVmcsForVp (
     // corresponds exactly to the location where RtlCaptureContext will return
     // to inside of ShvVpInitialize.
     //
+    // ShvVpRestoreAfterLaunch briefly runs on the hypervisor stack, so enter
+    // it with interrupts off. An exiting instruction in an ISR there would
+    // have its frames overwritten. ShvOsRestoreContext restores the real
+    // EFLAGS.
+    //
     __vmx_vmwrite(GUEST_RSP, (uintptr_t)VpData->ShvStackLimit + KERNEL_STACK_SIZE - sizeof(CONTEXT));
     __vmx_vmwrite(GUEST_RIP, (uintptr_t)ShvVpRestoreAfterLaunch);
-    __vmx_vmwrite(GUEST_RFLAGS, context->EFlags);
+    __vmx_vmwrite(GUEST_RFLAGS, context->EFlags & ~EFLAGS_INTERRUPT_FLAG);
 
     //
     // Load the hypervisor entrypoint and stack. We give ourselves a standard

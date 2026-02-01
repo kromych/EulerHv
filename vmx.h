@@ -36,6 +36,7 @@ Environment:
 #define MTRR_TYPE_WB            6
 #define MTRR_TYPE_MAX           7
 #define SELECTOR_TABLE_INDEX    0x04
+#define EFLAGS_INTERRUPT_FLAG   0x200
 #define EFLAGS_ALIGN_CHECK      0x40000
 #define AMD64_TSS               9
 #ifndef PAGE_SIZE
