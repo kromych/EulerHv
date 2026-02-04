@@ -508,7 +508,10 @@ ShvVmxSetupVmcsForVp (
     // have its frames overwritten. ShvOsRestoreContext restores the real
     // EFLAGS.
     //
-    __vmx_vmwrite(GUEST_RSP, (uintptr_t)VpData->ShvStackLimit + KERNEL_STACK_SIZE - sizeof(CONTEXT));
+    // The 8 byte bias stands in for a return address, which keeps RSP
+    // ABI-aligned on entry.
+    //
+    __vmx_vmwrite(GUEST_RSP, (uintptr_t)VpData->ShvStackLimit + KERNEL_STACK_SIZE - sizeof(CONTEXT) - sizeof(UINT64));
     __vmx_vmwrite(GUEST_RIP, (uintptr_t)ShvVpRestoreAfterLaunch);
     __vmx_vmwrite(GUEST_RFLAGS, context->EFlags & ~EFLAGS_INTERRUPT_FLAG);
 

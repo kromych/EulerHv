@@ -316,18 +316,14 @@ ShvVmxEntryHandler (
     {
         //
         // Because we won't be returning back into assembly code, nothing will
-        // ever know about the "pop rcx" that must technically be done (or more
-        // accurately "add rsp, 4" as rcx will already be correct thanks to the
-        // fixup earlier. In order to keep the stack sane, do that adjustment
-        // here.
+        // ever do the "pop rcx" that must technically be done. Leave RSP as is
+        // so the extra 8 bytes stand in for a return address and keep
+        // ShvVmxResume ABI-aligned. HOST_RSP is reloaded on every VM-Exit, so
+        // the stack does not drift.
         //
-        Context->Rsp += sizeof(Context->Rcx);
-
-        //
-        // Return into a VMXRESUME intrinsic, which we broke out as its own
-        // function, in order to allow this to work. No assembly code will be
-        // needed as RtlRestoreContext will fix all the GPRs, and what we just
-        // did to RSP will take care of the rest.
+        // Then, return into a VMXRESUME intrinsic, which we broke out as its
+        // own function, in order to allow this to work. No assembly code will
+        // be needed as ShvOsRestoreContext will fix all the GPRs and RSP.
         //
         Context->Rip = (UINT64)ShvVmxResume;
     }

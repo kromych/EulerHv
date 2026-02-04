@@ -91,8 +91,11 @@ ShvVpRestoreAfterLaunch (
     // Get the per-processor data. This routine temporarily executes on the
     // same stack as the hypervisor (using no real stack space except the home
     // registers), so we can retrieve the VP the same way the hypervisor does.
+    // Account for the 8 byte bias that stands in for a return address (see
+    // ShvVmxSetupVmcsForVp)
     //
     vpData = (PSHV_VP_DATA)((uintptr_t)_AddressOfReturnAddress() +
+                            sizeof(UINT64) +
                             sizeof(CONTEXT) -
                             KERNEL_STACK_SIZE);
 
