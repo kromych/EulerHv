@@ -24,6 +24,7 @@
 
     _ltr PROC
     ltr     cx
+    ret
     _ltr ENDP
 
     ShvOsCaptureContext PROC
