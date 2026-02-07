@@ -36,7 +36,7 @@ Environment:
 #define FALSE               0
 #endif
 
-#define KERNEL_STACK_SIZE   24 * 1024
+#define KERNEL_STACK_SIZE   (24 * 1024)
 
 typedef struct DECLSPEC_ALIGN(16) _M128A
 {
