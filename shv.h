@@ -40,6 +40,7 @@ typedef struct _SHV_VP_STATE
     uintptr_t GuestEFlags;
     UINT16 ExitReason;
     UINT8 ExitVm;
+    UINT8 SkipRipAdvance;
 } SHV_VP_STATE, *PSHV_VP_STATE;
 
 typedef struct _SHV_CALLBACK_CONTEXT

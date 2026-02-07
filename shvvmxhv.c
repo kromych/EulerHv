@@ -95,6 +95,22 @@ ShvVmxHandleInvd (
 }
 
 VOID
+ShvVmxInjectGeneralProtection (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Inject #GP(0). RIP stays at the faulting instruction
+    //
+    __vmx_vmwrite(VM_ENTRY_INTR_INFO, INTR_INFO_VALID |
+                                      INTR_INFO_DELIVER_CODE |
+                                      INTR_INFO_TYPE_HARD_EXCEPTION |
+                                      INTR_INFO_VECTOR_GP);
+    __vmx_vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, 0);
+    VpState->SkipRipAdvance = TRUE;
+}
+
+VOID
 ShvVmxHandleCpuid (
     _In_ PSHV_VP_STATE VpState
     )
@@ -191,6 +207,9 @@ ShvVmxHandleExit (
     // INVD, XSETBV and other VMX instructions. GETSEC cannot happen as we do
     // not run in SMX context.
     //
+    // RDMSR and WRMSR exit for MSRs outside the MSR bitmap, and raise #GP as
+    // on bare metal
+    //
     switch (VpState->ExitReason)
     {
     case EXIT_REASON_CPUID:
@@ -201,6 +220,10 @@ ShvVmxHandleExit (
         break;
     case EXIT_REASON_XSETBV:
         ShvVmxHandleXsetbv(VpState);
+        break;
+    case EXIT_REASON_MSR_READ:
+    case EXIT_REASON_MSR_WRITE:
+        ShvVmxInjectGeneralProtection(VpState);
         break;
     case EXIT_REASON_VMCALL:
     case EXIT_REASON_VMCLEAR:
@@ -219,12 +242,14 @@ ShvVmxHandleExit (
     }
 
     //
-    // Move the instruction pointer to the next instruction after the one that
-    // caused the exit. Since we are not doing any special handling or changing
-    // of execution, this can be done for any exit reason.
+    // Move the instruction pointer past the exiting instruction, unless the
+    // handler injected a fault
     //
-    VpState->GuestRip += ShvVmxRead(VM_EXIT_INSTRUCTION_LEN);
-    __vmx_vmwrite(GUEST_RIP, VpState->GuestRip);
+    if (VpState->SkipRipAdvance == FALSE)
+    {
+        VpState->GuestRip += ShvVmxRead(VM_EXIT_INSTRUCTION_LEN);
+        __vmx_vmwrite(GUEST_RIP, VpState->GuestRip);
+    }
 }
 
 DECLSPEC_NORETURN
@@ -273,6 +298,7 @@ ShvVmxEntryHandler (
     guestContext.ExitReason = ShvVmxRead(VM_EXIT_REASON) & 0xFFFF;
     guestContext.VpRegs = Context;
     guestContext.ExitVm = FALSE;
+    guestContext.SkipRipAdvance = FALSE;
 
     //
     // Call the generic handler

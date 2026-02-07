@@ -226,6 +226,11 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define SECONDARY_EXEC_PCOMMIT                  0x00200000
 #define SECONDARY_EXEC_TSC_SCALING              0x02000000
 
+#define INTR_INFO_VECTOR_GP                     13
+#define INTR_INFO_TYPE_HARD_EXCEPTION           (3 << 8)
+#define INTR_INFO_DELIVER_CODE                  (1 << 11)
+#define INTR_INFO_VALID                         (1UL << 31)
+
 #define VMX_BASIC_REVISION_MASK                 0x7fffffff
 #define VMX_BASIC_VMCS_SIZE_MASK                (0x1fffULL << 32)
 #define VMX_BASIC_32BIT_ADDRESSES               (1ULL << 48)
