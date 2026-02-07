@@ -35,6 +35,12 @@ Environment:
 
 #define SHV_STACK_CANARY            0x6B63617453766853 // 'kcatSvhS'
 
+//
+// EPT PML4 entries SimpleVisor can populate. The first maps the low 512GB with
+// 2MB pages and the rest use 1GB pages when supported, for up to 8TB
+//
+#define SHV_EPT_PML4E_COUNT         16
+
 struct _SHV_CALLBACK_CONTEXT;
 
 typedef
@@ -105,12 +111,13 @@ typedef struct _SHV_VP_DATA
     DECLSPEC_ALIGN(PAGE_SIZE) VMX_EPML4E Epml4[PML4E_ENTRY_COUNT];
     DECLSPEC_ALIGN(PAGE_SIZE) VMX_PDPTE Epdpt[PDPTE_ENTRY_COUNT];
     DECLSPEC_ALIGN(PAGE_SIZE) VMX_LARGE_PDE Epde[PDPTE_ENTRY_COUNT][PDE_ENTRY_COUNT];
+    DECLSPEC_ALIGN(PAGE_SIZE) VMX_HUGE_PDPTE EpdptHuge[SHV_EPT_PML4E_COUNT - 1][PDPTE_ENTRY_COUNT];
 
     DECLSPEC_ALIGN(PAGE_SIZE) VMX_VMCS VmxOn;
     DECLSPEC_ALIGN(PAGE_SIZE) VMX_VMCS Vmcs;
 } SHV_VP_DATA, *PSHV_VP_DATA;
 
-C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 5) * PAGE_SIZE));
+C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 5 + SHV_EPT_PML4E_COUNT - 1) * PAGE_SIZE));
 
 VOID
 _sldt (

@@ -44,6 +44,8 @@ Environment:
 #endif
 #define MTRR_MSR_CAPABILITIES   0x0fe
 #define MTRR_MSR_DEFAULT        0x2ff
+#define MTRR_DEFAULT_TYPE_MASK  0xff
+#define MTRR_DEFAULT_ENABLE     (1ULL << 11)
 #define MTRR_MSR_VARIABLE_BASE  0x200
 #define MTRR_MSR_VARIABLE_MASK  (MTRR_MSR_VARIABLE_BASE+1)
 #define MTRR_PAGE_SIZE          4096

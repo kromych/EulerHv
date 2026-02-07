@@ -114,6 +114,55 @@ ShvVmxMtrrAdjustEffectiveMemoryType (
     return CandidateMemoryType;
 }
 
+UINT32
+ShvVmxMtrrGetHugePageMemoryType (
+    _In_ PSHV_VP_DATA VpData,
+    _In_ UINT64 HugePageAddress,
+    _In_ UINT32 DefaultMemoryType
+    )
+{
+    UINT32 i;
+    UINT32 memoryType;
+    UINT64 hugePageEnd;
+
+    //
+    // A 1GB EPT entry has a single memory type, so use an MTRR type only if it
+    // covers the whole 1GB. Without any MTRR the default type applies
+    //
+    memoryType = MTRR_TYPE_MAX;
+    hugePageEnd = HugePageAddress + _1GB - 1;
+    for (i = 0; i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0]); i++)
+    {
+        //
+        // Skip disabled ranges, and ranges that don't touch this page
+        //
+        if ((VpData->MtrrData[i].Enabled == FALSE) ||
+            (VpData->MtrrData[i].PhysicalAddressMax < HugePageAddress) ||
+            (VpData->MtrrData[i].PhysicalAddressMin > hugePageEnd))
+        {
+            continue;
+        }
+
+        //
+        // Partial or conflicting ranges mix the types within the page, so
+        // use UC, which is always safe
+        //
+        if ((VpData->MtrrData[i].PhysicalAddressMin > HugePageAddress) ||
+            (VpData->MtrrData[i].PhysicalAddressMax < hugePageEnd) ||
+            ((memoryType != MTRR_TYPE_MAX) &&
+             (memoryType != VpData->MtrrData[i].Type)))
+        {
+            return MTRR_TYPE_UC;
+        }
+        memoryType = VpData->MtrrData[i].Type;
+    }
+
+    //
+    // Return the single MTRR type that covers the page, or the default one
+    //
+    return (memoryType != MTRR_TYPE_MAX) ? memoryType : DefaultMemoryType;
+}
+
 VOID
 ShvVmxEptInitialize (
     _In_ PSHV_VP_DATA VpData
@@ -122,6 +171,12 @@ ShvVmxEptInitialize (
     UINT32 i, j;
     VMX_PDPTE tempEpdpte;
     VMX_LARGE_PDE tempEpde;
+    VMX_HUGE_PDPTE tempHugePdpte;
+    INT32 cpuInfo[4];
+    UINT32 physicalAddressBits;
+    UINT32 pml4Count;
+    UINT64 mtrrDefault;
+    UINT32 defaultMemoryType;
 
     //
     // Fill out the EPML4E which covers the first 512GB of RAM
@@ -171,6 +226,72 @@ ShvVmxEptInitialize (
             VpData->Epde[i][j].Type = ShvVmxMtrrAdjustEffectiveMemoryType(VpData,
                                                                           VpData->Epde[i][j].PageFrameNumber * _2MB,
                                                                           MTRR_TYPE_WB);
+        }
+    }
+
+    //
+    // RAM or MMIO can live above 512GB. With 1GB EPT pages map it too, at one
+    // page of PDPTEs per 512GB. VMWare does not virtualize 1GB EPT entries
+    // correctly, but only accesses above 512GB use them
+    //
+    if ((VpData->MsrData[12].QuadPart & VMX_EPT_1GB_PAGE_BIT) == 0)
+    {
+        return;
+    }
+
+    //
+    // Each PML4 entry covers 512GB (39 bits) of the physical address width
+    //
+    __cpuid(cpuInfo, 0x80000000);
+    if ((UINT32)cpuInfo[0] < 0x80000008)
+    {
+        return;
+    }
+    __cpuid(cpuInfo, 0x80000008);
+    physicalAddressBits = cpuInfo[0] & 0xFF;
+    if ((physicalAddressBits <= 39) || (physicalAddressBits > 52))
+    {
+        return;
+    }
+    pml4Count = 1 << (physicalAddressBits - 39);
+    if (pml4Count > SHV_EPT_PML4E_COUNT)
+    {
+        pml4Count = SHV_EPT_PML4E_COUNT;
+    }
+
+    //
+    // The default MTRR type applies outside the variable MTRRs. With MTRRs
+    // disabled all memory is UC
+    //
+    mtrrDefault = __readmsr(MTRR_MSR_DEFAULT);
+    defaultMemoryType = (mtrrDefault & MTRR_DEFAULT_ENABLE) ?
+                        (UINT32)(mtrrDefault & MTRR_DEFAULT_TYPE_MASK) :
+                        MTRR_TYPE_UC;
+
+    //
+    // Fill out a RWX Huge PDPTE
+    //
+    tempHugePdpte.AsUlonglong = 0;
+    tempHugePdpte.Read = tempHugePdpte.Write = tempHugePdpte.Execute = 1;
+    tempHugePdpte.Large = 1;
+
+    //
+    // Loop every additional 512GB, and identity map every 1GB of it
+    //
+    for (i = 1; i < pml4Count; i++)
+    {
+        VpData->Epml4[i].Read = 1;
+        VpData->Epml4[i].Write = 1;
+        VpData->Epml4[i].Execute = 1;
+        VpData->Epml4[i].PageFrameNumber = ShvOsGetPhysicalAddress(&VpData->EpdptHuge[i - 1]) / PAGE_SIZE;
+
+        for (j = 0; j < PDPTE_ENTRY_COUNT; j++)
+        {
+            VpData->EpdptHuge[i - 1][j].AsUlonglong = tempHugePdpte.AsUlonglong;
+            VpData->EpdptHuge[i - 1][j].PageFrameNumber = (i * PDPTE_ENTRY_COUNT) + j;
+            VpData->EpdptHuge[i - 1][j].Type = ShvVmxMtrrGetHugePageMemoryType(VpData,
+                                                                               (UINT64)VpData->EpdptHuge[i - 1][j].PageFrameNumber * _1GB,
+                                                                               defaultMemoryType);
         }
     }
 }
