@@ -39,9 +39,10 @@ ShvVmxMtrrInitialize (
     mtrrCapabilities.AsUlonglong = __readmsr(MTRR_MSR_CAPABILITIES);
 
     //
-    // Iterate over each variable MTRR
+    // Iterate over each variable MTRR, up to as many as we can track
     //
-    for (i = 0; i < mtrrCapabilities.VarCnt; i++)
+    for (i = 0; (i < mtrrCapabilities.VarCnt) &&
+                (i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0])); i++)
     {
         //
         // Capture the value
