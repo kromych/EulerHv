@@ -33,6 +33,8 @@ Environment:
 #define _1GB                        (1 * 1024 * 1024 * 1024)
 #define _2MB                        (2 * 1024 * 1024)
 
+#define SHV_STACK_CANARY            0x6B63617453766853 // 'kcatSvhS'
+
 struct _SHV_CALLBACK_CONTEXT;
 
 typedef
@@ -81,6 +83,12 @@ typedef struct _SHV_VP_DATA
             UINT64 MsrBitmapPhysicalAddress;
             UINT64 EptPml4PhysicalAddress;
             UINT32 EptControls;
+
+            //
+            // Must be last. The hypervisor stack grows down toward it, so an
+            // overflow overwrites it first
+            //
+            UINT64 StackCanary;
         };
     };
 

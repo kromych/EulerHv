@@ -249,6 +249,19 @@ ShvVmxEntryHandler (
     vpData = (VOID*)((uintptr_t)(Context + 1) - KERNEL_STACK_SIZE);
 
     //
+    // The VP data sits at the bottom of the hypervisor stack. A clobbered
+    // canary means the stack overflowed into it, so halt
+    //
+    if (vpData->StackCanary != SHV_STACK_CANARY)
+    {
+        __debugbreak();
+        for (;;)
+        {
+            __halt();
+        }
+    }
+
+    //
     // Build a little stack context to make it easier to keep track of certain
     // guest state, such as the RIP/RSP/RFLAGS, and the exit reason. The rest
     // of the general purpose registers come from the context structure that we

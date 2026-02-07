@@ -193,6 +193,7 @@ ShvVpAllocateData (
     )
 {
     PSHV_VP_DATA data;
+    UINT32 i;
 
     //
     // Allocate a contiguous chunk of RAM to back this allocation
@@ -204,6 +205,14 @@ ShvVpAllocateData (
         // Zero out the entire data region
         //
         __stosq((UINT64*)data, 0, (sizeof(*data) / sizeof(UINT64)) * CpuCount);
+
+        //
+        // Arm the stack canary that every VM-Exit checks
+        //
+        for (i = 0; i < CpuCount; i++)
+        {
+            data[i].StackCanary = SHV_STACK_CANARY;
+        }
     }
 
     //
