@@ -85,6 +85,15 @@ typedef struct _SHV_VP_DATA
             UINT32 EptControls;
 
             //
+            // The VM-Exit SimpleVisor could not handle, for the debugger
+            //
+            UINT64 FatalExitReason;
+            UINT64 FatalExitQualification;
+            UINT64 FatalGuestPhysicalAddress;
+            UINT64 FatalGuestLinearAddress;
+            UINT64 FatalGuestRip;
+
+            //
             // Must be last. The hypervisor stack grows down toward it, so an
             // overflow overwrites it first
             //

@@ -35,6 +35,7 @@ Environment:
 typedef struct _SHV_VP_STATE
 {
     PCONTEXT VpRegs;
+    PSHV_VP_DATA VpData;
     uintptr_t GuestRip;
     uintptr_t GuestRsp;
     uintptr_t GuestEFlags;

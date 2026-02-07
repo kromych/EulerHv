@@ -94,6 +94,43 @@ ShvVmxHandleInvd (
     __wbinvd();
 }
 
+DECLSPEC_NORETURN
+VOID
+ShvVmxHalt (
+    VOID
+    )
+{
+    //
+    // Unrecoverable state. Break into the debugger and stop this processor
+    //
+    __debugbreak();
+    for (;;)
+    {
+        __halt();
+    }
+}
+
+DECLSPEC_NORETURN
+VOID
+ShvVmxHandleFatalExit (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSHV_VP_DATA vpData = VpState->VpData;
+
+    //
+    // An exit SimpleVisor cannot handle, such as an EPT violation outside the
+    // identity map. Its instruction length is undefined so the guest cannot be
+    // resumed. Save the details for the debugger and halt
+    //
+    vpData->FatalExitReason = VpState->ExitReason;
+    vpData->FatalExitQualification = ShvVmxRead(EXIT_QUALIFICATION);
+    vpData->FatalGuestPhysicalAddress = ShvVmxRead(GUEST_PHYSICAL_ADDRESS);
+    vpData->FatalGuestLinearAddress = ShvVmxRead(GUEST_LINEAR_ADDRESS);
+    vpData->FatalGuestRip = VpState->GuestRip;
+    ShvVmxHalt();
+}
+
 VOID
 ShvVmxInjectGeneralProtection (
     _In_ PSHV_VP_STATE VpState
@@ -210,6 +247,8 @@ ShvVmxHandleExit (
     // RDMSR and WRMSR exit for MSRs outside the MSR bitmap, and raise #GP as
     // on bare metal
     //
+    // EPT violations and misconfigurations and any other exit are fatal
+    //
     switch (VpState->ExitReason)
     {
     case EXIT_REASON_CPUID:
@@ -237,8 +276,10 @@ ShvVmxHandleExit (
     case EXIT_REASON_VMXON:
         ShvVmxHandleVmx(VpState);
         break;
+    case EXIT_REASON_EPT_VIOLATION:
+    case EXIT_REASON_EPT_MISCONFIG:
     default:
-        break;
+        ShvVmxHandleFatalExit(VpState);
     }
 
     //
@@ -279,11 +320,7 @@ ShvVmxEntryHandler (
     //
     if (vpData->StackCanary != SHV_STACK_CANARY)
     {
-        __debugbreak();
-        for (;;)
-        {
-            __halt();
-        }
+        ShvVmxHalt();
     }
 
     //
@@ -297,6 +334,7 @@ ShvVmxEntryHandler (
     guestContext.GuestRsp = ShvVmxRead(GUEST_RSP);
     guestContext.ExitReason = ShvVmxRead(VM_EXIT_REASON) & 0xFFFF;
     guestContext.VpRegs = Context;
+    guestContext.VpData = vpData;
     guestContext.ExitVm = FALSE;
     guestContext.SkipRipAdvance = FALSE;
 
