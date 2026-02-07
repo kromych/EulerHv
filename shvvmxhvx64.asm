@@ -35,9 +35,11 @@
                                 ;   1) it does not taint the value of RCX
                                 ;   2) it does not spill any registers, nor
                                 ;      expect home space to be allocated for it
-    jmp     ShvVmxEntryHandler  ; jump to the C code handler. we assume that it
-                                ; compiled with optimizations and does not use
-                                ; home space, which is true of release builds.
+    jmp     ShvVmxEntryHandler  ; jump to the C code handler. the push above
+                                ; keeps RSP ABI-aligned without a return
+                                ; address, and the handler's home space
+                                ; overlaps the unused P1Home-P4Home fields of
+                                ; the context, so this is safe in any build
     ShvVmxEntry ENDP
 
     end

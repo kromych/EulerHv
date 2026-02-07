@@ -132,12 +132,11 @@ ShvOsDpcRoutine (
     dpcContext->Routine(dpcContext->Context);
 
     //
-    // During unload SimpleVisor uses the RtlRestoreContext function which will
-    // unfortunately use the "iretq" opcode in order to restore execution back.
-    // This causes the processor to remove the RPL bits off the segments. As
-    // the x64 kernel does not expect kernel-mode code to change the value of
-    // any segments, this results in the DS and ES segments being stuck 0x20,
-    // and the FS segment being stuck at 0x50, until the next context switch.
+    // During unload SimpleVisor restores the guest context from the VM-Exit
+    // handler, after VMX loaded the host selectors with their RPL bits
+    // cleared. The x64 kernel does not expect kernel-mode code to change any
+    // segments, so DS and ES are stuck at 0x20, and FS at 0x50, until the
+    // next context switch.
     //
     // If the DPC happened to have interrupted either the idle thread or system
     // thread, that's perfectly fine (albeit unusual). If the DPC interrupted a
