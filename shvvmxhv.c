@@ -233,9 +233,12 @@ ShvVmxHandleVmx (
     )
 {
     //
-    // Set the CF flag, which is how VMX instructions indicate failure
+    // Report VMfailInvalid. CF is set and PF, AF, ZF, SF and OF are cleared
     //
-    VpState->GuestEFlags |= 0x1; // VM_FAIL_INVALID
+    VpState->GuestEFlags &= ~(EFLAGS_CARRY_FLAG | EFLAGS_PARITY_FLAG |
+                              EFLAGS_AUX_CARRY_FLAG | EFLAGS_ZERO_FLAG |
+                              EFLAGS_SIGN_FLAG | EFLAGS_OVERFLOW_FLAG);
+    VpState->GuestEFlags |= EFLAGS_CARRY_FLAG;
 
     //
     // RFLAGs is actually restored from the VMCS, so update it here
