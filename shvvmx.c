@@ -660,7 +660,7 @@ ShvVmxProbe (
     UINT64 featureControl;
 
     //
-    // Check the Hypervisor Present-bit
+    // Check the VMX feature bit
     //
     __cpuid(cpu_info, 1);
     if ((cpu_info[2] & 0x20) == FALSE)
