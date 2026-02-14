@@ -218,13 +218,40 @@ ShvVmxHandleXsetbv (
     _In_ PSHV_VP_STATE VpState
     )
 {
-    //
-    // Simply issue the XSETBV instruction on the native logical processor.
-    //
+    INT32 cpu_info[4];
+    UINT64 xcr0;
+    UINT64 supported;
 
-    _xsetbv((UINT32)VpState->VpRegs->Rcx,
-            VpState->VpRegs->Rdx << 32 |
-            VpState->VpRegs->Rax);
+    //
+    // An invalid value raises #GP in root mode and crashes the host. Check it
+    // as the processor does and inject #GP instead. The CPL and CR4.OSXSAVE
+    // checks happen before the exit
+    //
+    xcr0 = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
+    __cpuidex(cpu_info, 0xD, 0);
+    supported = (UINT64)(UINT32)cpu_info[3] << 32 | (UINT32)cpu_info[0];
+
+    if (((UINT32)VpState->VpRegs->Rcx != 0) ||              // Only XCR0 exists
+        ((xcr0 & ~supported) != 0) ||                       // Unsupported state
+        ((xcr0 & XCR0_X87) == 0) ||                         // x87 must be set
+        (((xcr0 & XCR0_AVX) != 0) &&
+         ((xcr0 & XCR0_SSE) == 0)) ||                       // AVX requires SSE
+        (((xcr0 & XCR0_BNDREG) != 0) !=
+         ((xcr0 & XCR0_BNDCSR) != 0)) ||                    // MPX all or none
+        (((xcr0 & XCR0_AVX512) != 0) &&
+         ((xcr0 & (XCR0_AVX512 | XCR0_AVX | XCR0_SSE)) !=
+          (XCR0_AVX512 | XCR0_AVX | XCR0_SSE))) ||          // AVX-512 all or none
+        (((xcr0 & XCR0_TILECFG) != 0) !=
+         ((xcr0 & XCR0_TILEDATA) != 0)))                    // AMX all or none
+    {
+        ShvVmxInjectGeneralProtection(VpState);
+        return;
+    }
+
+    //
+    // Issue the XSETBV instruction on the native logical processor
+    //
+    _xsetbv((UINT32)VpState->VpRegs->Rcx, xcr0);
 }
 
 VOID

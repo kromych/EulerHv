@@ -44,6 +44,14 @@ Environment:
 #define EFLAGS_INTERRUPT_FLAG   0x200
 #define EFLAGS_OVERFLOW_FLAG    0x800
 #define EFLAGS_ALIGN_CHECK      0x40000
+#define XCR0_X87                (1ULL << 0)
+#define XCR0_SSE                (1ULL << 1)
+#define XCR0_AVX                (1ULL << 2)
+#define XCR0_BNDREG             (1ULL << 3)
+#define XCR0_BNDCSR             (1ULL << 4)
+#define XCR0_AVX512             (7ULL << 5) // Opmask, ZMM_Hi256, Hi16_ZMM
+#define XCR0_TILECFG            (1ULL << 17)
+#define XCR0_TILEDATA           (1ULL << 18)
 #define AMD64_TSS               9
 #ifndef PAGE_SIZE
 #define PAGE_SIZE               4096
