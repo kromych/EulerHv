@@ -185,6 +185,17 @@ ShvVmxHandleCpuid (
         //
         cpu_info[2] |= HYPERV_HYPERVISOR_PRESENT_BIT;
     }
+    else if (VpState->VpRegs->Rax == HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS)
+    {
+        //
+        // Return our highest hypervisor leaf and the SimpleVisor vendor, which
+        // guests probe once they see the Hypervisor Present-bit
+        //
+        cpu_info[0] = HYPERV_CPUID_INTERFACE;
+        cpu_info[1] = 'pmiS';
+        cpu_info[2] = 'iVel';
+        cpu_info[3] = 'ros';
+    }
     else if (VpState->VpRegs->Rax == HYPERV_CPUID_INTERFACE)
     {
         //
