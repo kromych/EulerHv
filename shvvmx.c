@@ -23,6 +23,20 @@ Environment:
 #include "shv.h"
 
 VOID
+ShvVmxDetectUnderlyingHypervisor (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    INT32 cpuInfo[4];
+
+    //
+    // VMX is not enabled yet, so CPUID reaches the processor or the
+    // hypervisor we are nested under, which sets the Hypervisor Present-bit
+    //
+    __cpuid(cpuInfo, 1);
+    VpData->UnderlyingHypervisor = (cpuInfo[2] & HYPERV_HYPERVISOR_PRESENT_BIT) != 0;
+}
+VOID
 ShvVmxMtrrInitialize (
     _In_ PSHV_VP_DATA VpData
     )
@@ -708,6 +722,11 @@ ShvVmxLaunchOnVp (
     {
         VpData->MsrData[i].QuadPart = __readmsr(MSR_IA32_VMX_BASIC + i);
     }
+
+    //
+    // Being nested changes how CPUID is handled
+    //
+    ShvVmxDetectUnderlyingHypervisor(VpData);
 
     //
     // Initialize all the MTRR-related MSRs by reading their value and build

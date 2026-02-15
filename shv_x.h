@@ -91,6 +91,11 @@ typedef struct _SHV_VP_DATA
             UINT32 EptControls;
 
             //
+            // The hypervisor SimpleVisor is nested under, if any
+            //
+            UINT8 UnderlyingHypervisor;
+
+            //
             // The VM-Exit SimpleVisor could not handle, for the debugger
             //
             UINT64 FatalExitReason;
