@@ -94,6 +94,7 @@ typedef struct _SHV_VP_DATA
             // The hypervisor SimpleVisor is nested under, if any
             //
             UINT8 UnderlyingHypervisor;
+            UINT8 UnderlyingHypervisorIsVmware;
 
             //
             // The VM-Exit SimpleVisor could not handle, for the debugger

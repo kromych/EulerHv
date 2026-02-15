@@ -35,6 +35,18 @@ ShvVmxDetectUnderlyingHypervisor (
     //
     __cpuid(cpuInfo, 1);
     VpData->UnderlyingHypervisor = (cpuInfo[2] & HYPERV_HYPERVISOR_PRESENT_BIT) != 0;
+    if (VpData->UnderlyingHypervisor == FALSE)
+    {
+        return;
+    }
+
+    //
+    // Check for the "VMwareVMware" vendor signature
+    //
+    __cpuid(cpuInfo, HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS);
+    VpData->UnderlyingHypervisorIsVmware = (cpuInfo[1] == 'awMV') &&
+                                           (cpuInfo[2] == 'MVer') &&
+                                           (cpuInfo[3] == 'eraw');
 }
 VOID
 ShvVmxMtrrInitialize (
@@ -246,9 +258,10 @@ ShvVmxEptInitialize (
     //
     // RAM or MMIO can live above 512GB. With 1GB EPT pages map it too, at one
     // page of PDPTEs per 512GB. VMWare does not virtualize 1GB EPT entries
-    // correctly, but only accesses above 512GB use them
+    // correctly, so under it leave the range unmapped and let accesses halt
     //
-    if ((VpData->MsrData[12].QuadPart & VMX_EPT_1GB_PAGE_BIT) == 0)
+    if (((VpData->MsrData[12].QuadPart & VMX_EPT_1GB_PAGE_BIT) == 0) ||
+        (VpData->UnderlyingHypervisorIsVmware != FALSE))
     {
         return;
     }
@@ -724,7 +737,7 @@ ShvVmxLaunchOnVp (
     }
 
     //
-    // Being nested changes how CPUID is handled
+    // Being nested changes how CPUID and the EPT identity map are handled
     //
     ShvVmxDetectUnderlyingHypervisor(VpData);
 
