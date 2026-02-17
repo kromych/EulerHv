@@ -41,13 +41,17 @@ ShvVmxDetectUnderlyingHypervisor (
     }
 
     //
-    // Check for the "VMwareVMware" vendor signature
+    // Check for the "VMwareVMware" and "Microsoft Hv" vendor signatures
     //
     __cpuid(cpuInfo, HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS);
     VpData->UnderlyingHypervisorIsVmware = (cpuInfo[1] == 'awMV') &&
                                            (cpuInfo[2] == 'MVer') &&
                                            (cpuInfo[3] == 'eraw');
+    VpData->UnderlyingHypervisorIsHyperV = (cpuInfo[1] == 'rciM') &&
+                                           (cpuInfo[2] == 'foso') &&
+                                           (cpuInfo[3] == 'vH t');
 }
+
 VOID
 ShvVmxMtrrInitialize (
     _In_ PSHV_VP_DATA VpData

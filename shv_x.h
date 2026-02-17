@@ -95,6 +95,7 @@ typedef struct _SHV_VP_DATA
             //
             UINT8 UnderlyingHypervisor;
             UINT8 UnderlyingHypervisorIsVmware;
+            UINT8 UnderlyingHypervisorIsHyperV;
 
             //
             // The VM-Exit SimpleVisor could not handle, for the debugger

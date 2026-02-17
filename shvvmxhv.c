@@ -259,6 +259,48 @@ ShvVmxHandleXsetbv (
 }
 
 VOID
+ShvVmxHandleMsr (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    UINT32 msr;
+    UINT64 value;
+
+    //
+    // Only MSRs outside the MSR bitmap ranges exit. None exist on bare metal
+    // so raise #GP. Under Hyper-V pass its synthetic MSRs through from root
+    // mode, which exits to Hyper-V. A #GP from Hyper-V would be fatal, but a
+    // guest only uses the synthetic MSRs Hyper-V advertised
+    //
+    msr = (UINT32)VpState->VpRegs->Rcx;
+    if ((VpState->VpData->UnderlyingHypervisorIsHyperV == FALSE) ||
+        (msr < HYPERV_SYNTHETIC_MSR_MIN) ||
+        (msr > HYPERV_SYNTHETIC_MSR_MAX))
+    {
+        ShvVmxInjectGeneralProtection(VpState);
+        return;
+    }
+
+    if (VpState->ExitReason == EXIT_REASON_MSR_READ)
+    {
+        //
+        // RDMSR returns the value in EDX:EAX, clearing the upper halves
+        //
+        value = __readmsr(msr);
+        VpState->VpRegs->Rax = (UINT32)value;
+        VpState->VpRegs->Rdx = value >> 32;
+    }
+    else
+    {
+        //
+        // WRMSR takes the value from EDX:EAX, ignoring the upper halves
+        //
+        value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
+        __writemsr(msr, value);
+    }
+}
+
+VOID
 ShvVmxHandleVmx (
     _In_ PSHV_VP_STATE VpState
     )
@@ -289,8 +331,8 @@ ShvVmxHandleExit (
     // INVD, XSETBV and other VMX instructions. GETSEC cannot happen as we do
     // not run in SMX context.
     //
-    // RDMSR and WRMSR exit for MSRs outside the MSR bitmap, and raise #GP as
-    // on bare metal
+    // RDMSR and WRMSR exit for MSRs outside the MSR bitmap. Hyper-V's
+    // synthetic MSRs pass through when nested under it, others raise #GP
     //
     // EPT violations and misconfigurations and any other exit are fatal
     //
@@ -307,7 +349,7 @@ ShvVmxHandleExit (
         break;
     case EXIT_REASON_MSR_READ:
     case EXIT_REASON_MSR_WRITE:
-        ShvVmxInjectGeneralProtection(VpState);
+        ShvVmxHandleMsr(VpState);
         break;
     case EXIT_REASON_VMCALL:
     case EXIT_REASON_VMCLEAR:

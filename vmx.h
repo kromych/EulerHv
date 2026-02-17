@@ -302,6 +302,9 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define HYPERV_CPUID_MIN                        0x40000005
 #define HYPERV_CPUID_MAX                        0x4000ffff
 
+#define HYPERV_SYNTHETIC_MSR_MIN                0x40000000
+#define HYPERV_SYNTHETIC_MSR_MAX                0x400000ff
+
 enum vmcs_field {
     VIRTUAL_PROCESSOR_ID            = 0x00000000,
     POSTED_INTR_NOTIFICATION_VECTOR = 0x00000002,
