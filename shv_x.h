@@ -98,6 +98,12 @@ typedef struct _SHV_VP_DATA
             UINT8 UnderlyingHypervisorIsHyperV;
 
             //
+            // Whether the guest can use UMONITOR, UMWAIT and TPAUSE. If not
+            // WAITPKG is hidden
+            //
+            UINT8 UserWaitPauseEnabled;
+
+            //
             // The VM-Exit SimpleVisor could not handle, for the debugger
             //
             UINT64 FatalExitReason;

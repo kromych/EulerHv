@@ -185,6 +185,16 @@ ShvVmxHandleCpuid (
         //
         cpu_info[2] |= HYPERV_HYPERVISOR_PRESENT_BIT;
     }
+    else if (((UINT32)VpState->VpRegs->Rax == 7) &&
+             ((UINT32)VpState->VpRegs->Rcx == 0) &&
+             (VpState->VpData->UserWaitPauseEnabled == FALSE))
+    {
+        //
+        // Hide WAITPKG (ECX bit 5) without the enable user wait and pause
+        // control, as UMONITOR, UMWAIT and TPAUSE would raise #UD
+        //
+        cpu_info[2] &= ~(1 << 5);
+    }
     else if ((VpState->VpRegs->Rax == HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS) &&
              (VpState->VpData->UnderlyingHypervisor == FALSE))
     {

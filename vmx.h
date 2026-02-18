@@ -241,6 +241,7 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define SECONDARY_EXEC_XSAVES                   0x00100000
 #define SECONDARY_EXEC_PCOMMIT                  0x00200000
 #define SECONDARY_EXEC_TSC_SCALING              0x02000000
+#define SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE    0x04000000
 
 #define INTR_INFO_VECTOR_GP                     13
 #define INTR_INFO_TYPE_HARD_EXCEPTION           (3 << 8)

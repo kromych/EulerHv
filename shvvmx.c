@@ -444,6 +444,7 @@ ShvVmxSetupVmcsForVp (
     PCONTEXT context = &VpData->ContextFrame;
     VMX_GDTENTRY64 vmxGdtEntry;
     VMX_EPTP vmxEptp;
+    UINT32 secondaryControls;
 
     //
     // Begin by setting the link pointer to the required value for 4KB VMCS.
@@ -489,12 +490,19 @@ ShvVmxSetupVmcsForVp (
     // Also enable EPT support, for additional performance and ability to trap
     // memory access efficiently.
     //
-    __vmx_vmwrite(SECONDARY_VM_EXEC_CONTROL,
-                           ShvUtilAdjustMsr(VpData->MsrData[11],
-                                            SECONDARY_EXEC_ENABLE_RDTSCP |
-                                            SECONDARY_EXEC_ENABLE_INVPCID |
-                                            SECONDARY_EXEC_XSAVES |
-                                            VpData->EptControls));
+    // Finally, enable UMONITOR, UMWAIT and TPAUSE, which otherwise raise #UD
+    // although CPUID reports WAITPKG. Without the control the CPUID handler
+    // hides WAITPKG
+    //
+    secondaryControls = ShvUtilAdjustMsr(VpData->MsrData[11],
+                                         SECONDARY_EXEC_ENABLE_RDTSCP |
+                                         SECONDARY_EXEC_ENABLE_INVPCID |
+                                         SECONDARY_EXEC_XSAVES |
+                                         SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE |
+                                         VpData->EptControls);
+    VpData->UserWaitPauseEnabled =
+        (secondaryControls & SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE) != 0;
+    __vmx_vmwrite(SECONDARY_VM_EXEC_CONTROL, secondaryControls);
 
     //
     // Enable no pin-based options ourselves, but there may be some required by
