@@ -60,6 +60,11 @@ ShvVmxEntry (
     VOID
     );
 
+VOID
+ShvVmxHypercall (
+    _Inout_ PCONTEXT Context
+    );
+
 INT32
 ShvVmxLaunchOnVp (
     _In_ PSHV_VP_DATA VpData

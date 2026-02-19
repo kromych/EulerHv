@@ -148,6 +148,20 @@ ShvVmxInjectGeneralProtection (
 }
 
 VOID
+ShvVmxInjectInvalidOpcode (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Inject #UD. RIP stays at the faulting instruction
+    //
+    __vmx_vmwrite(VM_ENTRY_INTR_INFO, INTR_INFO_VALID |
+                                      INTR_INFO_TYPE_HARD_EXCEPTION |
+                                      INTR_INFO_VECTOR_UD);
+    VpState->SkipRipAdvance = TRUE;
+}
+
+VOID
 ShvVmxHandleCpuid (
     _In_ PSHV_VP_STATE VpState
     )
@@ -330,6 +344,33 @@ ShvVmxHandleVmx (
 }
 
 VOID
+ShvVmxHandleVmcall (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Under Hyper-V forward hypercalls from the guest to Hyper-V. The guest
+    // enabled the partition-wide hypercall page before we loaded, and the
+    // identity map keeps the parameter addresses valid. Root mode runs at
+    // CPL 0, so raise #UD for user mode here as Hyper-V would. Otherwise
+    // VMCALL fails like any other VMX instruction
+    //
+    if (VpState->VpData->UnderlyingHypervisorIsHyperV == FALSE)
+    {
+        ShvVmxHandleVmx(VpState);
+        return;
+    }
+
+    if ((ShvVmxRead(GUEST_CS_SELECTOR) & RPL_MASK) != DPL_SYSTEM)
+    {
+        ShvVmxInjectInvalidOpcode(VpState);
+        return;
+    }
+
+    ShvVmxHypercall(VpState->VpRegs);
+}
+
+VOID
 ShvVmxHandleExit (
     _In_ PSHV_VP_STATE VpState
     )
@@ -340,6 +381,9 @@ ShvVmxHandleExit (
     // have requested no optional exits whatsoever, we should only see CPUID,
     // INVD, XSETBV and other VMX instructions. GETSEC cannot happen as we do
     // not run in SMX context.
+    //
+    // VMCALL goes to Hyper-V as a hypercall when nested under it, and
+    // otherwise fails like the other VMX instructions
     //
     // RDMSR and WRMSR exit for MSRs outside the MSR bitmap. Hyper-V's
     // synthetic MSRs pass through when nested under it, others raise #GP
@@ -362,6 +406,8 @@ ShvVmxHandleExit (
         ShvVmxHandleMsr(VpState);
         break;
     case EXIT_REASON_VMCALL:
+        ShvVmxHandleVmcall(VpState);
+        break;
     case EXIT_REASON_VMCLEAR:
     case EXIT_REASON_VMLAUNCH:
     case EXIT_REASON_VMPTRLD:
