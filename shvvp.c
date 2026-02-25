@@ -36,10 +36,11 @@ ShvIsOurHypervisorPresent (
     if (cpuInfo[2] & HYPERV_HYPERVISOR_PRESENT_BIT)
     {
         //
-        // Next, check if this is a compatible Hypervisor, and if it has the
-        // SimpleVisor signature
+        // Next, issue the magic CPUID sequence that only SimpleVisor answers.
+        // Without it the processor or another hypervisor returns its highest
+        // basic leaf instead
         //
-        __cpuid(cpuInfo, HYPERV_CPUID_INTERFACE);
+        __cpuidex(cpuInfo, 0x41414141, 0x44444444);
         if (cpuInfo[0] == ' vhS')
         {
             //

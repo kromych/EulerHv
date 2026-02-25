@@ -183,6 +183,20 @@ ShvVmxHandleCpuid (
     }
 
     //
+    // Magic CPUID sequence to detect SimpleVisor. A leaf of its own keeps the
+    // interface leaf of an underlying hypervisor intact, such as Hv#1
+    //
+    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
+        ((UINT32)VpState->VpRegs->Rcx == 0x44444444))
+    {
+        VpState->VpRegs->Rax = ' vhS';
+        VpState->VpRegs->Rbx = 0;
+        VpState->VpRegs->Rcx = 0;
+        VpState->VpRegs->Rdx = 0;
+        return;
+    }
+
+    //
     // Otherwise, issue the CPUID to the logical processor based on the indexes
     // on the VP's GPRs.
     //
@@ -224,10 +238,12 @@ ShvVmxHandleCpuid (
         cpu_info[2] = 'iVel';
         cpu_info[3] = 'ros';
     }
-    else if (VpState->VpRegs->Rax == HYPERV_CPUID_INTERFACE)
+    else if ((VpState->VpRegs->Rax == HYPERV_CPUID_INTERFACE) &&
+             (VpState->VpData->UnderlyingHypervisor == FALSE))
     {
         //
-        // Return our interface identifier
+        // Return our interface identifier. When nested pass the underlying
+        // hypervisor's through
         //
         cpu_info[0] = ' vhS';
     }
