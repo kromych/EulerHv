@@ -514,6 +514,11 @@ enum vmcs_field {
 #define GUEST_ACTIVITY_ACTIVE           0
 #define GUEST_ACTIVITY_HLT              1
 
+#define GUEST_INTR_STATE_STI            0x00000001
+#define GUEST_INTR_STATE_MOV_SS         0x00000002
+
+#define VMX_MISC_HLT_ACTIVITY_STATE     (1 << 6)
+
 typedef struct _VMX_GDTENTRY64
 {
     UINT64 Base;

@@ -388,6 +388,30 @@ ShvVmxHandleVmcall (
 }
 
 VOID
+ShvVmxHandleHlt (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Hyper-V makes HLT exiting mandatory. Resume past the HLT in the HLT
+    // activity state, so the guest waits for an interrupt as before. Clear
+    // the STI and MOV SS blocking of sti; hlt, which ends with the HLT and
+    // which VM entry rejects in that state.
+    //
+    // Without the HLT activity state just resume. The guest then wakes up as
+    // if an interrupt came in
+    //
+    if ((VpState->VpData->MsrData[MSR_IA32_VMX_MISC - MSR_IA32_VMX_BASIC].LowPart &
+         VMX_MISC_HLT_ACTIVITY_STATE) != 0)
+    {
+        __vmx_vmwrite(GUEST_INTERRUPTIBILITY_INFO,
+                      ShvVmxRead(GUEST_INTERRUPTIBILITY_INFO) &
+                      ~(GUEST_INTR_STATE_STI | GUEST_INTR_STATE_MOV_SS));
+        __vmx_vmwrite(GUEST_ACTIVITY_STATE, GUEST_ACTIVITY_HLT);
+    }
+}
+
+VOID
 ShvVmxHandleExit (
     _In_ PSHV_VP_STATE VpState
     )
@@ -405,6 +429,10 @@ ShvVmxHandleExit (
     // RDMSR and WRMSR exit for MSRs outside the MSR bitmap. Hyper-V's
     // synthetic MSRs pass through when nested under it, others raise #GP
     //
+    // HLT, MONITOR and MWAIT exit when an underlying hypervisor makes them
+    // mandatory, as Hyper-V does. MONITOR is a hint and MWAIT may return at
+    // any time, so both just complete
+    //
     // EPT violations and misconfigurations and any other exit are fatal
     //
     switch (VpState->ExitReason)
@@ -421,6 +449,12 @@ ShvVmxHandleExit (
     case EXIT_REASON_MSR_READ:
     case EXIT_REASON_MSR_WRITE:
         ShvVmxHandleMsr(VpState);
+        break;
+    case EXIT_REASON_HLT:
+        ShvVmxHandleHlt(VpState);
+        break;
+    case EXIT_REASON_MONITOR_INSTRUCTION:
+    case EXIT_REASON_MWAIT_INSTRUCTION:
         break;
     case EXIT_REASON_VMCALL:
         ShvVmxHandleVmcall(VpState);
