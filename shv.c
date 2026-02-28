@@ -76,14 +76,17 @@ ShvLoad (
 
     //
     // Check if all LPs are now hypervised. Return the failure code of at least
-    // one of them. 
+    // one of them.
     //
     // Note that each VP is responsible for freeing its VP data on failure.
+    // Unload the LPs that did load, as the driver image goes away while their
+    // VM-Exits would still run in it.
     //
     if (callbackContext.InitCount != ShvOsGetActiveProcessorCount())
     {
         ShvOsDebugPrint("The SHV failed to initialize (0x%lX) Failed CPU: %d\n",
                         callbackContext.FailureStatus, callbackContext.FailedCpu);
+        ShvUnload();
         return callbackContext.FailureStatus;
     }
 
