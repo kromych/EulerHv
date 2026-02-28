@@ -121,61 +121,9 @@ $resultFile = Join-Path $outDir 'result.txt'
 Remove-Item -Path $resultFile -ErrorAction SilentlyContinue
 Invoke-VmRun -Guest -Arguments @('copyFileFromGuestToHost', $vmxPath, "$GuestLabDir\result.txt", $resultFile) | Out-Null
 
-$result = @{}
-foreach ($line in Get-Content -Path $resultFile) {
-    $key, $value = $line -split '=', 2
-    $result[$key] = $value
-}
-
-function Get-Result {
-    param ([string] $Key)
-
-    if ($result.ContainsKey($Key)) { $result[$Key] } else { '<missing>' }
-}
-
-#
-# Check the results
-#
-$checks = @(
-    @{ Name = 'Guest test ran to completion';                       Pass = (Get-Result 'done') -eq '1' }
-    @{ Name = 'Kernel debugging enabled on COM1 at 115200 baud';    Pass = ((Get-Result 'kd.debug') -eq 'Yes') -and ((Get-Result 'kd.debugtype') -eq 'Serial') -and
-                                                                           ((Get-Result 'kd.debugport') -eq '1') -and ((Get-Result 'kd.baudrate') -eq '115200') }
-    @{ Name = 'SimpleVisor not detected before loading';            Pass = (Get-Result 'before.simplevisor') -eq '0' }
-    @{ Name = 'sc start simplevisor succeeded';                     Pass = (Get-Result 'load.exit') -eq '0' }
-    @{ Name = 'SimpleVisor detected while loaded';                  Pass = (Get-Result 'loaded.simplevisor') -eq '1' }
-    @{ Name = 'Hypervisor Present-bit set while loaded';            Pass = (Get-Result 'loaded.hypervisor_present') -eq '1' }
-    @{ Name = 'Hypervisor vendor leaf unchanged while loaded';      Pass = (Get-Result 'loaded.hv_vendor') -eq (Get-Result 'before.hv_vendor') }
-    @{ Name = 'Hypervisor interface leaf unchanged while loaded';   Pass = (Get-Result 'loaded.hv_interface') -eq (Get-Result 'before.hv_interface') }
-    @{ Name = 'WAITPKG hidden, or usable, while loaded';            Pass = (Get-Result 'loaded.waitpkg_exec') -in @('ok', 'skipped') }
-    @{ Name = 'sc stop simplevisor succeeded';                      Pass = (Get-Result 'unload.exit') -eq '0' }
-    @{ Name = 'SimpleVisor not detected after unloading';           Pass = (Get-Result 'after.simplevisor') -eq '0' }
-)
-if ($kdCheck) {
-    $checks = @(@{ Name = 'kd broke in over the serial pipe, and resumed'; Pass = $kdCheck.Connected -and $kdCheck.Resumed }) + $checks
-}
-
-Write-Host ''
-Write-Host ("Underlying hypervisor: {0} ({1}); WAITPKG before/loaded: {2}/{3} ({4})" -f
-    (Get-Result 'before.hv_vendor'), (Get-Result 'before.hv_interface'),
-    (Get-Result 'before.waitpkg'), (Get-Result 'loaded.waitpkg'), (Get-Result 'loaded.waitpkg_exec'))
-if ((Get-Result 'load.exit') -ne '0') {
-    Write-Host "sc start: $(Get-Result 'load.output')"
-}
-if ((Get-Result 'before.vmx') -ne '1') {
-    Write-Warning ('The guest has no VMX, so SimpleVisor cannot load in it. The VM was created ' +
-                   'without virtualized VT-x/EPT, because the host runs a hypervisor; see README.md.')
-}
-$failed = 0
-foreach ($check in $checks) {
-    if ($check.Pass) {
-        Write-Host "  PASS  $($check.Name)" -ForegroundColor Green
-    }
-    else {
-        Write-Host "  FAIL  $($check.Name)" -ForegroundColor Red
-        $failed++
-    }
-}
-Write-Host "Full results: $resultFile"
+$failed = Show-LabResult -Result (Read-LabResult -Path $resultFile) -ResultFile $resultFile -KdCheck $kdCheck `
+                         -NoVmxHint ('The VM was created without virtualized VT-x/EPT, because the host runs a ' +
+                                     'hypervisor; see README.md, or use the OpenVMM lab instead.')
 
 if (-not $KeepRunning) {
     Invoke-VmRun -Arguments @('stop', $vmxPath, 'hard') | Out-Null

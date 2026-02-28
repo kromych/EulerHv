@@ -31,6 +31,7 @@
     Create the VM even though a hypervisor runs on the host. VMware then cannot
     virtualize VT-x, so the VM is created without it: Windows, the kernel
     debugger and the test deployment all work, but SimpleVisor cannot load.
+    The OpenVMM lab (openvmm\) can nest VT-x on such hosts.
 
 .PARAMETER ProductKey
     The product key, if the media needs one to pick an edition. A generic
@@ -71,128 +72,6 @@ param (
 if (-not $VmName) { $VmName = $LabDefaults.VmName }
 if (-not $VmRoot) { $VmRoot = $LabDefaults.VmRoot }
 $IsoPath = (Resolve-Path $IsoPath).Path
-
-function Get-WimImage {
-    param ([string] $Path)
-
-    #
-    # Read the edition list straight from the XML metadata of install.wim or
-    # install.esd, which, unlike Get-WindowsImage, needs no elevation. Its
-    # resource header is at offset 48h of the WIM header: a 7-byte size with
-    # a flags byte, then the offset; the XML itself is uncompressed UTF-16.
-    #
-    $stream = [System.IO.File]::OpenRead($Path)
-    try {
-        $reader = New-Object System.IO.BinaryReader($stream)
-        $stream.Position = 0x48
-        $size = $reader.ReadUInt64() -band 0x00FFFFFFFFFFFFFF
-        $stream.Position = $reader.ReadInt64()
-        $bytes = $reader.ReadBytes([int] $size)
-    }
-    finally {
-        $stream.Dispose()
-    }
-    $xml = [xml] [System.Text.Encoding]::Unicode.GetString($bytes).TrimStart([char] 0xFEFF)
-    $xml.WIM.IMAGE | ForEach-Object {
-        [pscustomobject] @{ ImageIndex = [int] $_.INDEX; ImageName = $_.NAME }
-    }
-}
-
-function Get-IsoImage {
-    param ([string] $Path)
-
-    $mounted = Mount-DiskImage -ImagePath $Path -PassThru
-    try {
-        $drive = ($mounted | Get-Volume).DriveLetter + ':\'
-        $wim = Get-ChildItem -Path (Join-Path $drive 'sources\install.*') |
-               Where-Object { $_.Extension -in '.wim', '.esd' } |
-               Select-Object -First 1
-        if (-not $wim) {
-            throw "$Path has no sources\install.wim or install.esd."
-        }
-        Get-WimImage -Path $wim.FullName
-    }
-    finally {
-        Dismount-DiskImage -ImagePath $Path | Out-Null
-    }
-}
-
-function Find-Oscdimg {
-    if ($OscdimgPath) {
-        return $OscdimgPath
-    }
-    $candidates = @(
-        "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe",
-        (Join-Path $LabDefaults.WdkRoot 'Program Files\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe')
-    )
-    $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $found) {
-        throw 'oscdimg.exe was not found. Install the Windows ADK "Deployment Tools" feature, or pass -OscdimgPath.'
-    }
-    $found
-}
-
-function New-UnattendedIso {
-    param (
-        [string] $SourceIso,
-        [string] $DestinationIso
-    )
-
-    #
-    # Windows install media boots under UEFI with a "Press any key to boot from
-    # CD or DVD" prompt, which would stall an unattended install. Rebuild the
-    # ISO with the no-prompt UEFI boot image, and with the answer file and the
-    # first-logon script added to it.
-    #
-    $oscdimg = Find-Oscdimg
-    $work = Join-Path ([System.IO.Path]::GetTempPath()) "shvlab-iso-$PID"
-    $image = Mount-DiskImage -ImagePath $SourceIso -PassThru
-    try {
-        $source = (($image | Get-Volume).DriveLetter + ':\')
-        Write-Host "Copying the install media from $source..."
-        $copy = Invoke-NativeCommand -FilePath 'robocopy.exe' -Arguments @($source, $work, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/R:1', '/W:1') -AllowFailure
-        if ($copy.ExitCode -ge 8) {
-            throw "Copying the install media failed:`n$($copy.Output)"
-        }
-    }
-    finally {
-        Dismount-DiskImage -ImagePath $SourceIso | Out-Null
-    }
-
-    try {
-        Get-ChildItem -Path $work -Recurse -File | ForEach-Object { $_.IsReadOnly = $false }
-
-        $productKeyXml = ''
-        if ($ProductKey) {
-            $productKeyXml = "`n        <ProductKey>`n          <Key>$ProductKey</Key>`n          <WillShowUI>OnError</WillShowUI>`n        </ProductKey>"
-        }
-        $unattend = Get-Content -Raw -Path (Join-Path $PSScriptRoot 'unattend\autounattend.xml')
-        $unattend = $unattend.Replace('{{LOCALE}}', $Locale).
-                              Replace('{{IMAGE_INDEX}}', [string] $ImageIndex).
-                              Replace('{{PRODUCT_KEY}}', $productKeyXml).
-                              Replace('{{COMPUTER_NAME}}', $VmName.Substring(0, [Math]::Min(15, $VmName.Length))).
-                              Replace('{{ADMIN_PASSWORD}}', [System.Security.SecurityElement]::Escape($LabDefaults.AdminPassword))
-        [System.IO.File]::WriteAllText((Join-Path $work 'autounattend.xml'), $unattend)
-
-        New-Item -ItemType Directory -Path (Join-Path $work 'vmlab') -Force | Out-Null
-        Copy-Item -Path (Join-Path $PSScriptRoot 'guest\FirstLogon.ps1') -Destination (Join-Path $work 'vmlab')
-
-        $etfsboot = Join-Path $work 'boot\etfsboot.com'
-        $efisys = Join-Path $work 'efi\microsoft\boot\efisys_noprompt.bin'
-        if (-not (Test-Path $efisys)) {
-            $efisys = Join-Path (Split-Path $oscdimg -Parent) 'efisys_noprompt.bin'
-        }
-
-        Write-Host "Building the unattended ISO $DestinationIso..."
-        Invoke-NativeCommand -FilePath $oscdimg -Arguments @(
-            '-m', '-o', '-u2', '-udfver102', '-lSHVLAB',
-            "-bootdata:2#p0,e,b$etfsboot#pEF,e,b$efisys",
-            $work, $DestinationIso) | Out-Null
-    }
-    finally {
-        Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
 
 function Write-Vmx {
     param (
@@ -277,27 +156,16 @@ function Write-Vmx {
     [System.IO.File]::WriteAllLines($Path, [string[]] $lines)
 }
 
-$images = @(Get-IsoImage -Path $IsoPath)
 if ($ListImages) {
-    $images | Format-Table ImageIndex, ImageName -AutoSize
+    Get-IsoImage -Path $IsoPath | Format-Table ImageIndex, ImageName -AutoSize
     return
 }
 
-if ($ImageName) {
-    $match = $images | Where-Object { $_.ImageName -eq $ImageName }
-    if (-not $match) {
-        throw "$IsoPath has no edition named '$ImageName'. Use -ListImages to see them."
-    }
-    $ImageIndex = $match.ImageIndex
-}
-$image = $images | Where-Object { $_.ImageIndex -eq $ImageIndex }
-if (-not $image) {
-    throw "$IsoPath has no edition with index $ImageIndex. Use -ListImages to see them."
-}
+$image = Resolve-LabImage -IsoPath $IsoPath -ImageIndex $ImageIndex -ImageName $ImageName
 if (-not $GuestOs) {
     $GuestOs = if ($image.ImageName -match 'Server') { 'windows2022srvNext-64' } else { 'windows11-64' }
 }
-Write-Host "Installing '$($image.ImageName)' (index $ImageIndex) as guest OS type $GuestOs."
+Write-Host "Installing '$($image.ImageName)' (index $($image.ImageIndex)) as guest OS type $GuestOs."
 
 $NoNestedVirtualization = $false
 if (-not (Test-HostNestedVirtualization)) {
@@ -330,7 +198,8 @@ if (Test-Path $vmDir) {
 New-Item -ItemType Directory -Path $vmDir | Out-Null
 
 $installIso = Join-Path $vmDir "$VmName-install.iso"
-New-UnattendedIso -SourceIso $IsoPath -DestinationIso $installIso
+New-UnattendedIso -SourceIso $IsoPath -DestinationIso $installIso -ImageIndex $image.ImageIndex `
+                  -ComputerName $VmName -ProductKey $ProductKey -Locale $Locale -OscdimgPath $OscdimgPath
 
 $diskFile = "$VmName.vmdk"
 Write-Host 'Creating the virtual disk...'

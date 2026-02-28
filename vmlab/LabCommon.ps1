@@ -212,6 +212,242 @@ without it.
     $false
 }
 
+function Get-WimImage {
+    param ([Parameter(Mandatory)] [string] $Path)
+
+    #
+    # Read the edition list straight from the XML metadata of install.wim or
+    # install.esd, which, unlike Get-WindowsImage, needs no elevation. Its
+    # resource header is at offset 48h of the WIM header: a 7-byte size with
+    # a flags byte, then the offset; the XML itself is uncompressed UTF-16.
+    #
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $reader = New-Object System.IO.BinaryReader($stream)
+        $stream.Position = 0x48
+        $size = $reader.ReadUInt64() -band 0x00FFFFFFFFFFFFFF
+        $stream.Position = $reader.ReadInt64()
+        $bytes = $reader.ReadBytes([int] $size)
+    }
+    finally {
+        $stream.Dispose()
+    }
+    $xml = [xml] [System.Text.Encoding]::Unicode.GetString($bytes).TrimStart([char] 0xFEFF)
+    $xml.WIM.IMAGE | ForEach-Object {
+        [pscustomobject] @{ ImageIndex = [int] $_.INDEX; ImageName = $_.NAME }
+    }
+}
+
+function Get-IsoImage {
+    param ([Parameter(Mandatory)] [string] $Path)
+
+    $mounted = Mount-DiskImage -ImagePath $Path -PassThru
+    try {
+        $drive = ($mounted | Get-Volume).DriveLetter + ':\'
+        $wim = Get-ChildItem -Path (Join-Path $drive 'sources\install.*') |
+               Where-Object { $_.Extension -in '.wim', '.esd' } |
+               Select-Object -First 1
+        if (-not $wim) {
+            throw "$Path has no sources\install.wim or install.esd."
+        }
+        Get-WimImage -Path $wim.FullName
+    }
+    finally {
+        Dismount-DiskImage -ImagePath $Path | Out-Null
+    }
+}
+
+function Resolve-LabImage {
+    param (
+        [Parameter(Mandatory)] [string] $IsoPath,
+        [int] $ImageIndex = 1,
+        [string] $ImageName
+    )
+
+    #
+    # Pick the edition to install, by name if one is given, and by index
+    # otherwise
+    #
+    $images = @(Get-IsoImage -Path $IsoPath)
+    if ($ImageName) {
+        $image = $images | Where-Object { $_.ImageName -eq $ImageName }
+        if (-not $image) {
+            throw "$IsoPath has no edition named '$ImageName'. Use -ListImages to see them."
+        }
+    }
+    else {
+        $image = $images | Where-Object { $_.ImageIndex -eq $ImageIndex }
+        if (-not $image) {
+            throw "$IsoPath has no edition with index $ImageIndex. Use -ListImages to see them."
+        }
+    }
+    $image
+}
+
+function Find-Oscdimg {
+    param ([string] $OscdimgPath)
+
+    if ($OscdimgPath) {
+        return $OscdimgPath
+    }
+    $candidates = @(
+        "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe",
+        (Join-Path $LabDefaults.WdkRoot 'Program Files\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe')
+    )
+    $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $found) {
+        throw 'oscdimg.exe was not found. Install the Windows ADK "Deployment Tools" feature, or pass -OscdimgPath.'
+    }
+    $found
+}
+
+function New-UnattendedIso {
+    param (
+        [Parameter(Mandatory)] [string] $SourceIso,
+        [Parameter(Mandatory)] [string] $DestinationIso,
+        [Parameter(Mandatory)] [int] $ImageIndex,
+        [Parameter(Mandatory)] [string] $ComputerName,
+        [string] $ProductKey,
+        [string] $Locale = 'en-US',
+        [hashtable[]] $ExtraFiles = @(),
+        [string] $OscdimgPath
+    )
+
+    #
+    # Windows install media boots under UEFI with a "Press any key to boot from
+    # CD or DVD" prompt, which would stall an unattended install. Rebuild the
+    # ISO with the no-prompt UEFI boot image, and with the answer file and the
+    # first-logon script added to it, in a vmlab directory. ExtraFiles adds more
+    # to that directory, as @{ Source = <file or directory>; Destination =
+    # <path relative to vmlab> } entries.
+    #
+    $oscdimg = Find-Oscdimg -OscdimgPath $OscdimgPath
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) "shvlab-iso-$PID"
+    $image = Mount-DiskImage -ImagePath $SourceIso -PassThru
+    try {
+        $source = (($image | Get-Volume).DriveLetter + ':\')
+        Write-Host "Copying the install media from $source..."
+        $copy = Invoke-NativeCommand -FilePath 'robocopy.exe' -Arguments @($source, $work, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/R:1', '/W:1') -AllowFailure
+        if ($copy.ExitCode -ge 8) {
+            throw "Copying the install media failed:`n$($copy.Output)"
+        }
+    }
+    finally {
+        Dismount-DiskImage -ImagePath $SourceIso | Out-Null
+    }
+
+    try {
+        Get-ChildItem -Path $work -Recurse -File | ForEach-Object { $_.IsReadOnly = $false }
+
+        $productKeyXml = ''
+        if ($ProductKey) {
+            $productKeyXml = "`n        <ProductKey>`n          <Key>$ProductKey</Key>`n          <WillShowUI>OnError</WillShowUI>`n        </ProductKey>"
+        }
+        $unattend = Get-Content -Raw -Path (Join-Path $PSScriptRoot 'unattend\autounattend.xml')
+        $unattend = $unattend.Replace('{{LOCALE}}', $Locale).
+                              Replace('{{IMAGE_INDEX}}', [string] $ImageIndex).
+                              Replace('{{PRODUCT_KEY}}', $productKeyXml).
+                              Replace('{{COMPUTER_NAME}}', $ComputerName.Substring(0, [Math]::Min(15, $ComputerName.Length))).
+                              Replace('{{ADMIN_PASSWORD}}', [System.Security.SecurityElement]::Escape($LabDefaults.AdminPassword))
+        [System.IO.File]::WriteAllText((Join-Path $work 'autounattend.xml'), $unattend)
+
+        $labMedia = Join-Path $work 'vmlab'
+        New-Item -ItemType Directory -Path $labMedia -Force | Out-Null
+        Copy-Item -Path (Join-Path $PSScriptRoot 'guest\FirstLogon.ps1') -Destination $labMedia
+        foreach ($extra in $ExtraFiles) {
+            Copy-Item -Path $extra.Source -Destination (Join-Path $labMedia $extra.Destination) -Recurse
+        }
+
+        $etfsboot = Join-Path $work 'boot\etfsboot.com'
+        $efisys = Join-Path $work 'efi\microsoft\boot\efisys_noprompt.bin'
+        if (-not (Test-Path $efisys)) {
+            $efisys = Join-Path (Split-Path $oscdimg -Parent) 'efisys_noprompt.bin'
+        }
+
+        Write-Host "Building the unattended ISO $DestinationIso..."
+        Invoke-NativeCommand -FilePath $oscdimg -Arguments @(
+            '-m', '-o', '-u2', '-udfver102', '-lSHVLAB',
+            "-bootdata:2#p0,e,b$etfsboot#pEF,e,b$efisys",
+            $work, $DestinationIso) | Out-Null
+    }
+    finally {
+        Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Read-LabResult {
+    param ([Parameter(Mandatory)] [string] $Path)
+
+    #
+    # Parse the "phase.key=value" lines that guest\Test-ShvGuest.ps1 writes
+    #
+    $result = @{}
+    foreach ($line in Get-Content -Path $Path) {
+        $key, $value = $line -split '=', 2
+        $result[$key] = $value
+    }
+    $result
+}
+
+function Show-LabResult {
+    param (
+        [Parameter(Mandatory)] [hashtable] $Result,
+        [Parameter(Mandatory)] [string] $ResultFile,
+        $KdCheck,
+        [string] $NoVmxHint
+    )
+
+    #
+    # Check the results of a guest test run, print them, and return the number
+    # of failed checks
+    #
+    $get = {
+        param ([string] $Key)
+        if ($Result.ContainsKey($Key)) { $Result[$Key] } else { '<missing>' }
+    }
+    $checks = @(
+        @{ Name = 'Guest test ran to completion';                       Pass = (& $get 'done') -eq '1' }
+        @{ Name = 'Kernel debugging enabled on COM1 at 115200 baud';    Pass = ((& $get 'kd.debug') -eq 'Yes') -and ((& $get 'kd.debugtype') -eq 'Serial') -and
+                                                                               ((& $get 'kd.debugport') -eq '1') -and ((& $get 'kd.baudrate') -eq '115200') }
+        @{ Name = 'Guest has VMX';                                      Pass = (& $get 'before.vmx') -eq '1' }
+        @{ Name = 'SimpleVisor not detected before loading';            Pass = (& $get 'before.simplevisor') -eq '0' }
+        @{ Name = 'sc start simplevisor succeeded';                     Pass = (& $get 'load.exit') -eq '0' }
+        @{ Name = 'SimpleVisor detected while loaded';                  Pass = (& $get 'loaded.simplevisor') -eq '1' }
+        @{ Name = 'Hypervisor Present-bit set while loaded';            Pass = (& $get 'loaded.hypervisor_present') -eq '1' }
+        @{ Name = 'Hypervisor vendor leaf unchanged while loaded';      Pass = (& $get 'loaded.hv_vendor') -eq (& $get 'before.hv_vendor') }
+        @{ Name = 'Hypervisor interface leaf unchanged while loaded';   Pass = (& $get 'loaded.hv_interface') -eq (& $get 'before.hv_interface') }
+        @{ Name = 'WAITPKG hidden, or usable, while loaded';            Pass = (& $get 'loaded.waitpkg_exec') -in @('ok', 'skipped') }
+        @{ Name = 'sc stop simplevisor succeeded';                      Pass = (& $get 'unload.exit') -eq '0' }
+        @{ Name = 'SimpleVisor not detected after unloading';           Pass = (& $get 'after.simplevisor') -eq '0' }
+    )
+    if ($KdCheck) {
+        $checks = @(@{ Name = 'kd broke in over the serial pipe, and resumed'; Pass = $KdCheck.Connected -and $KdCheck.Resumed }) + $checks
+    }
+
+    Write-Host ''
+    Write-Host ("Underlying hypervisor: {0} ({1}); WAITPKG before/loaded: {2}/{3} ({4})" -f
+        (& $get 'before.hv_vendor'), (& $get 'before.hv_interface'),
+        (& $get 'before.waitpkg'), (& $get 'loaded.waitpkg'), (& $get 'loaded.waitpkg_exec'))
+    if ((& $get 'load.exit') -ne '0') {
+        Write-Host "sc start: $(& $get 'load.output')"
+    }
+    if ((& $get 'before.vmx') -ne '1') {
+        Write-Warning "The guest has no VMX, so SimpleVisor cannot load in it. $NoVmxHint"
+    }
+    $failed = 0
+    foreach ($check in $checks) {
+        if ($check.Pass) {
+            Write-Host "  PASS  $($check.Name)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  FAIL  $($check.Name)" -ForegroundColor Red
+            $failed++
+        }
+    }
+    Write-Host "Full results: $ResultFile"
+    $failed
+}
+
 function Get-LabDebugger {
     param (
         [string] $WdkRoot = $LabDefaults.WdkRoot,
@@ -227,18 +463,23 @@ function Get-LabDebugger {
 }
 
 function Get-LabDebuggerArguments {
+    param ([string] $PipeName = $LabDefaults.PipeName)
+
     #
     # Note that kd must be allowed to send its reset packets on connecting
     # (i.e. no "resets=0"): without them, a running target stays silent, and kd
     # never gets to break in.
     #
     $symbolCache = Join-Path ([System.IO.Path]::GetTempPath()) 'symbols'
-    @('-k', "com:pipe,port=\\.\pipe\$($LabDefaults.PipeName),reconnect",
+    @('-k', "com:pipe,port=\\.\pipe\$PipeName,reconnect",
       '-y', "$($LabDefaults.OutDir);srv*$symbolCache*https://msdl.microsoft.com/download/symbols")
 }
 
 function Send-LabKdBreakIn {
-    param ([int] $TimeoutSec = 30)
+    param (
+        [string] $PipeName = $LabDefaults.PipeName,
+        [int] $TimeoutSec = 30
+    )
 
     #
     # Break into the guest's kernel debugger by writing the KD break-in byte
@@ -253,7 +494,7 @@ function Send-LabKdBreakIn {
     # resumes it. So first listen for a while, as a target that is already
     # broken in keeps resending its state change, and only then break in, once.
     #
-    $pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', $LabDefaults.PipeName,
+    $pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', $PipeName,
                 [System.IO.Pipes.PipeDirection]::InOut, [System.IO.Pipes.PipeOptions]::Asynchronous)
     try {
         $pipe.Connect($TimeoutSec * 1000)
@@ -292,6 +533,8 @@ function Send-LabKdBreakIn {
 function Test-LabKernelDebugger {
     param (
         [string] $Vmx = (Get-LabVmx),
+        [string] $PipeName = $LabDefaults.PipeName,
+        [scriptblock] $TestGuest,
         [string] $WdkRoot = $LabDefaults.WdkRoot,
         [int] $TimeoutSec = 120
     )
@@ -304,8 +547,14 @@ function Test-LabKernelDebugger {
     # kd got to send "g", which can take a while. KD tolerates the debugger
     # coming and going, so the pipe stays usable for Connect-LabDebugger.ps1.
     #
+    # TestGuest tells whether the guest responds, and defaults to a VMware
+    # guest operation on the given VM.
+    #
+    if (-not $TestGuest) {
+        $TestGuest = { Test-GuestFile -Vmx $Vmx -Path "$GuestLabDir\ready.txt" }.GetNewClosure()
+    }
     $notResumed = "`nThe guest may be left broken into the debugger; attach with Connect-LabDebugger.ps1 to resume it."
-    if (-not (Send-LabKdBreakIn)) {
+    if (-not (Send-LabKdBreakIn -PipeName $PipeName)) {
         return [pscustomobject] @{
             Connected = $false
             Resumed   = $false
@@ -317,7 +566,7 @@ function Test-LabKernelDebugger {
     $marker = 'SHVLAB-KD-CONNECTED'
     $log = Join-Path ([System.IO.Path]::GetTempPath()) "shvlab-kd-$PID.log"
     Remove-Item -Path $log -ErrorAction SilentlyContinue
-    $arguments = (Get-LabDebuggerArguments) + @('-logo', $log, '-c', "vertarget; .echo $marker; g")
+    $arguments = (Get-LabDebuggerArguments -PipeName $PipeName) + @('-logo', $log, '-c', "vertarget; .echo $marker; g")
 
     #
     # Symbols are not needed for this, so keep kd from going through whatever
@@ -346,7 +595,7 @@ function Test-LabKernelDebugger {
             # Once kd ran the commands, wait for the guest to run again, as
             # shown by a guest operation succeeding
             #
-            if ($connected -and (Test-GuestFile -Vmx $Vmx -Path "$GuestLabDir\ready.txt")) {
+            if ($connected -and (& $TestGuest)) {
                 $resumed = $true
                 break
             }
@@ -476,6 +725,101 @@ function Save-LabScreenshot {
         finally {
             $bitmap.Dispose()
         }
+    }
+    finally {
+        $client.Dispose()
+    }
+}
+
+function Send-LabKeys {
+    param (
+        [string] $Text = '',
+        [switch] $RunDialog,
+        [switch] $Enter,
+        [int] $Port = $LabDefaults.VncPort,
+        [switch] $ScancodeWinKey,
+        [int] $DelayMs = 15
+    )
+
+    #
+    # Type into the VM console over VNC (RFB key events), to reach the guest
+    # when neither VMware Tools nor the network work, e.g. to open a console:
+    #
+    #   Send-LabKeys -RunDialog -Text 'powershell' -Enter
+    #
+    # RunDialog presses Win+R first. VMware maps the Super_L keysym to the
+    # Windows key, while OpenVMM has no keysym for it, and needs the scancode
+    # (E0 5B) as a QEMU extended key event instead: pass -ScancodeWinKey. Shift
+    # is pressed explicitly for shifted characters, which VMware requires.
+    #
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $client.ReceiveTimeout = 10000
+        $client.Connect('127.0.0.1', $Port)
+        $stream = $client.GetStream()
+
+        $readExact = {
+            param ([int] $Count)
+            $buffer = New-Object byte[] $Count
+            $offset = 0
+            while ($offset -lt $Count) {
+                $read = $stream.Read($buffer, $offset, $Count - $offset)
+                if ($read -le 0) { throw 'The VNC server closed the connection.' }
+                $offset += $read
+            }
+            , $buffer
+        }
+        $u32 = { param ($b, $i) ([uint32] $b[$i] -shl 24) -bor ([uint32] $b[$i + 1] -shl 16) -bor ([uint32] $b[$i + 2] -shl 8) -bor $b[$i + 3] }
+        $send = { param ([byte[]] $Bytes) $stream.Write($Bytes, 0, $Bytes.Length) }
+
+        [void] (& $readExact 12)
+        & $send ([System.Text.Encoding]::ASCII.GetBytes("RFB 003.008`n"))
+        [void] (& $readExact ((& $readExact 1)[0]))
+        & $send ([byte[]] @(1))
+        [void] (& $readExact 4)
+        & $send ([byte[]] @(1))
+        $init = & $readExact 24
+        [void] (& $readExact (& $u32 $init 20))
+
+        $key = {
+            param ([uint32] $Sym, [int] $Down)
+            & $send ([byte[]] @(4, $Down, 0, 0, (($Sym -shr 24) -band 0xFF), (($Sym -shr 16) -band 0xFF), (($Sym -shr 8) -band 0xFF), ($Sym -band 0xFF)))
+            Start-Sleep -Milliseconds $DelayMs
+        }
+        $scancode = {
+            param ([uint32] $Code, [int] $Down)
+            & $send ([byte[]] @(255, 0, 0, $Down, 0, 0, 0, 0, 0, 0, 0, $Code))
+            Start-Sleep -Milliseconds $DelayMs
+        }
+
+        if ($RunDialog) {
+            if ($ScancodeWinKey) {
+                #
+                # Advertise the QEMU extended key event pseudo-encoding (-258),
+                # then press E0 5B (0xDB in QEMU's numbering) with R (0x13)
+                #
+                & $send ([byte[]] @(2, 0, 0, 2, 0, 0, 0, 0, 0xFF, 0xFF, 0xFE, 0xFE))
+                & $scancode 0xDB 1; & $scancode 0x13 1; & $scancode 0x13 0; & $scancode 0xDB 0
+            }
+            else {
+                & $key 0xFFEB 1; & $key 0x72 1; & $key 0x72 0; & $key 0xFFEB 0
+            }
+            Start-Sleep -Milliseconds 800
+        }
+
+        $shifted = '~!@#$%^&*()_+{}|:"<>?ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        foreach ($char in $Text.ToCharArray()) {
+            $shift = $shifted.Contains($char)
+            if ($shift) { & $key 0xFFE1 1 }
+            & $key ([uint32] $char) 1
+            & $key ([uint32] $char) 0
+            if ($shift) { & $key 0xFFE1 0 }
+        }
+        if ($Enter) {
+            & $key 0xFF0D 1
+            & $key 0xFF0D 0
+        }
+        Start-Sleep -Milliseconds 300
     }
     finally {
         $client.Dispose()

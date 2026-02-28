@@ -1,10 +1,18 @@
-# SimpleVisor VMware lab
+# SimpleVisor lab
 
-These scripts build a VMware Workstation VM for loading SimpleVisor, unloading
-it, and checking what the guest sees while it's loaded. When SimpleVisor halts
-or the guest bugchecks, you can debug it. Because the VM has VMware underneath,
-the lab also exercises SimpleVisor's nested paths: VMware detection, passing the
-hypervisor CPUID leaves through, and the EPT limits.
+These scripts build a VM for loading SimpleVisor, unloading it, and checking
+what the guest sees while it's loaded. When SimpleVisor halts or the guest
+bugchecks, you can debug it. There are two flavors, which share the build, the
+guest setup, the guest test and the checks:
+
+- **VMware Workstation** (this directory). The guest sees VMware underneath, so
+  the lab exercises SimpleVisor's paths for VMware: its detection, passing the
+  hypervisor CPUID leaves through, and the EPT limits. VMware needs a host
+  without Hyper-V or VBS to nest VT-x.
+- **OpenVMM** (`openvmm\`). OpenVMM runs on the Windows Hypervisor Platform and
+  can nest VT-x even on hosts that run Hyper-V or VBS. The guest sees Hyper-V
+  underneath (`Hv#1`), so the lab exercises SimpleVisor's paths for Hyper-V. See
+  [The OpenVMM lab](#the-openvmm-lab).
 
 ## Requirements
 
@@ -72,7 +80,8 @@ this platform", and its `vmware.log` shows `Monitor Mode: ULM`. `New-LabVm.ps1`
 then stops. With `-SkipHostCheck` it creates the VM without virtualized VT-x
 instead. Windows, kernel debugging and the test deployment still work, but
 SimpleVisor can't load, because the guest has no VMX. `Invoke-ShvTest.ps1`
-reports that. Recreate the VM once the host no longer runs a hypervisor.
+reports that. Recreate the VM once the host no longer runs a hypervisor, or use
+the OpenVMM lab, which can nest VT-x on such hosts.
 
 ### Debugging
 
@@ -118,6 +127,73 @@ out during the install, and after a hang or a bugcheck. Take one by hand with:
 `New-LabVm.ps1` saves `out\install-screen.png` if the install doesn't finish
 in time.
 
+When neither VMware Tools nor the network works, `Send-LabKeys` types into the
+console over the same connection, for example to open a PowerShell window:
+
+```powershell
+. .\LabCommon.ps1; Send-LabKeys -RunDialog -Text 'powershell' -Enter
+```
+
+## The OpenVMM lab
+
+`openvmm\` has the same lab for [OpenVMM](https://github.com/microsoft/openvmm).
+OpenVMM runs on the Windows Hypervisor Platform (WHP). With `--nested-virt` it
+exposes VT-x to the guest, even when the host itself runs Hyper-V or VBS, which
+is where VMware can't nest.
+
+### Requirements
+
+- An OpenVMM build next to this repo, in `..\openvmm`, or set
+  `SHV_OPENVMM_ROOT`. The lab uses these files from it:
+  - `target\release\openvmm.exe`, or set `SHV_OPENVMM_EXE`.
+  - The `mscoreuefi` UEFI firmware (`MSVM.fd`) from the repo's `.packages`.
+  - The virtio-win NetKVM driver for Windows Server 2025 from the repo's
+    `.packages`.
+- The Windows Hypervisor Platform feature on the host.
+- A Windows Server 2025 ISO, because the NIC driver is the one for Server 2025.
+- The same tools as the VMware lab: the EWDK and the ADK's `oscdimg.exe`.
+
+### Usage
+
+```powershell
+cd vmlab\openvmm
+
+# Once: create the VM. This takes about 15-30 minutes and is fully unattended.
+.\New-OvmmLabVm.ps1 -IsoPath D:\iso\Server2025_Eval.iso -ImageName 'Windows Server 2025 SERVERSTANDARD'
+
+# Every time: build, deploy, load, check, unload.
+.\Invoke-OvmmShvTest.ps1
+
+# Attach the debugger.
+..\Connect-LabDebugger.ps1 -OpenVmm
+```
+
+### How it differs from the VMware lab
+
+- **Two configurations.** WHP doesn't allow nested virtualization together with
+  VMBus. So Windows is installed with VMBus, using the install DVD on VMBus SCSI
+  and synthetic video, and tested without VMBus, with VT-x exposed. Both
+  configurations attach the same NVMe disk and virtio NIC over PCIe, so Windows
+  sees the same devices in both.
+- **No snapshots.** OpenVMM can't save and restore a VM with nested
+  virtualization or NVMe. Instead, the installed disk is kept read-only as the
+  clean state. Each test boots a throwaway in-memory diff of it (`memdiff:`),
+  which is a cold boot of about 3 minutes.
+- **SSH instead of VMware Tools.** The first logon installs the virtio NIC
+  driver, which Windows doesn't have inbox, and turns on the OpenSSH server. It
+  accepts only a key generated per lab. OpenVMM's NAT forwards the guest's SSH
+  port to `127.0.0.1:22222`.
+- **The console.** VNC is on `127.0.0.1:5931`. Without VMBus there's no
+  synthetic video, so the console is black during tests, and only the debugger
+  shows what the guest is doing. For `Send-LabKeys`, pass `-Port 5931
+  -ScancodeWinKey`.
+- **The debugger pipe** is `\\.\pipe\SimpleVisorLabOvmm`. It's a plain pipe, not
+  in OpenVMM's `debugger-mode`. That mode delays the guest's reads of an empty
+  serial port, and Windows KD waits for data in exactly such loops, so kd stalls
+  for minutes after connecting, and boot is three times slower.
+- **The lab** lives in `Documents\Virtual Machines\SimpleVisorLabOvmm`: the
+  disk, the SSH key, and OpenVMM's logs and output.
+
 ## What the scripts do
 
 | Script | Purpose |
@@ -125,10 +201,13 @@ in time.
 | `New-LabVm.ps1` | Creates the VM from the ISO, installs Windows unattended, and takes the `clean` snapshot. |
 | `Build-LabArtifacts.ps1` | Builds `shv.sys` and `shvcheck.exe` with the EWDK, and test-signs `shv.sys`. |
 | `Invoke-ShvTest.ps1` | Reverts to `clean`, copies the files in, runs the guest test, and checks the results. |
-| `Connect-LabDebugger.ps1` | Attaches WinDbg or kd to the VM's serial pipe. |
-| `LabCommon.ps1` | Shared settings (VM name and location, guest credentials) and helpers. |
+| `Connect-LabDebugger.ps1` | Attaches WinDbg or kd to the VM's serial pipe (`-OpenVmm` for the OpenVMM VM). |
+| `LabCommon.ps1` | Shared settings (VM name and location, guest credentials) and helpers: install media, kd, VNC, result checks. |
+| `openvmm\New-OvmmLabVm.ps1` | Creates the OpenVMM VM's clean disk from the ISO, installing Windows unattended. |
+| `openvmm\Invoke-OvmmShvTest.ps1` | Boots a diff of the clean disk with VT-x exposed, and runs the same test as `Invoke-ShvTest.ps1`. |
+| `openvmm\OvmmLab.ps1` | OpenVMM settings and helpers: command lines, start and stop, SSH. |
 | `unattend\autounattend.xml` | The Windows Setup answer file template. |
-| `guest\FirstLogon.ps1` | Runs once in the new guest to set it up for SimpleVisor. |
+| `guest\FirstLogon.ps1` | Runs once in the new guest to set it up for SimpleVisor, and for VMware Tools or SSH. |
 | `guest\Test-ShvGuest.ps1` | Runs in the guest for each test: load, probe, unload. |
 | `guest\shvcheck.c` | The guest probe, which reports the CPUID state that SimpleVisor affects. |
 
@@ -160,7 +239,8 @@ Administrator account. On first logon, `FirstLogon.ps1` makes these changes:
   running inside the guest.
 - Keeps bugchecks on screen instead of rebooting.
 - Turns off sleep and automatic Windows Update.
-- Installs VMware Tools, which `vmrun` needs to drive the guest.
+- Installs VMware Tools, which `vmrun` needs to drive the guest. In the OpenVMM
+  lab it installs the virtio NIC driver and the OpenSSH server instead.
 - Reboots.
 
 ### Credentials
