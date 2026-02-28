@@ -183,8 +183,9 @@ ShvVmxHandleCpuid (
     }
 
     //
-    // Magic CPUID sequence to detect SimpleVisor. A leaf of its own keeps the
-    // interface leaf of an underlying hypervisor intact, such as Hv#1
+    // Magic CPUID sequence to detect SimpleVisor, as vmlab\guest\shvcheck.c
+    // does. A leaf of its own keeps the interface leaf of an underlying
+    // hypervisor intact, such as Hv#1
     //
     if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
         ((UINT32)VpState->VpRegs->Rcx == 0x44444444))
