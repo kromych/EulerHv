@@ -22,38 +22,67 @@ Environment:
 
 #include "shv.h"
 
+//
+// One bit per logical processor that SimpleVisor runs on. Only
+// ShvVpRestoreAfterLaunch sets it, after a successful VMLAUNCH. Unlike
+// EFLAGS.AC, which a kernel using SMAP sets on its own, the OS cannot set it
+//
+static volatile long* ShvVpVirtualizedBitmap;
+static UINT32 ShvVpVirtualizedBitmapCount;
+
+INT32
+ShvVpAllocateTracking (
+    _In_ UINT32 CpuCount
+    )
+{
+    size_t size;
+
+    //
+    // One bit per logical processor in whole longs for the bit intrinsics
+    //
+    size = ((CpuCount + 31) / 32) * sizeof(long);
+    ShvVpVirtualizedBitmap = ShvOsAllocateContigousAlignedMemory(size);
+    if (ShvVpVirtualizedBitmap == NULL)
+    {
+        return SHV_STATUS_NO_RESOURCES;
+    }
+    __stosb((UINT8*)ShvVpVirtualizedBitmap, 0, size);
+    ShvVpVirtualizedBitmapCount = CpuCount;
+    return SHV_STATUS_SUCCESS;
+}
+
+VOID
+ShvVpFreeTracking (
+    VOID
+    )
+{
+    if (ShvVpVirtualizedBitmap != NULL)
+    {
+        ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpVirtualizedBitmap,
+                                         ((ShvVpVirtualizedBitmapCount + 31) / 32) * sizeof(long));
+        ShvVpVirtualizedBitmap = NULL;
+        ShvVpVirtualizedBitmapCount = 0;
+    }
+}
+
 UINT8
 ShvIsOurHypervisorPresent (
     VOID
     )
 {
-    INT32 cpuInfo[4];
+    INT32 cpu;
 
     //
-    // Check if ECX[31h] ("Hypervisor Present Bit") is set in CPUID 1h
+    // SimpleVisor runs on this logical processor if its bit is set
     //
-    __cpuid(cpuInfo, 1);
-    if (cpuInfo[2] & HYPERV_HYPERVISOR_PRESENT_BIT)
+    cpu = ShvOsGetCurrentProcessorNumber();
+    if ((ShvVpVirtualizedBitmap == NULL) ||
+        (cpu < 0) ||
+        ((UINT32)cpu >= ShvVpVirtualizedBitmapCount))
     {
-        //
-        // Next, issue the magic CPUID sequence that only SimpleVisor answers.
-        // Without it the processor or another hypervisor returns its highest
-        // basic leaf instead
-        //
-        __cpuidex(cpuInfo, 0x41414141, 0x44444444);
-        if (cpuInfo[0] == ' vhS')
-        {
-            //
-            // It's us!
-            //
-            return TRUE;
-        }
+        return FALSE;
     }
-
-    //
-    // No Hypervisor, or someone else's
-    //
-    return FALSE;
+    return _bittest((long*)ShvVpVirtualizedBitmap, cpu) != 0;
 }
 
 VOID
@@ -101,10 +130,10 @@ ShvVpRestoreAfterLaunch (
                             KERNEL_STACK_SIZE);
 
     //
-    // Record that VMX is now enabled by returning back to ShvVpInitialize with
-    // the Alignment Check (AC) bit set.
+    // Mark this processor as virtualized, which tells ShvVpInitialize that the
+    // launch happened. The index comes from the VP data as no stack is used
     //
-    vpData->ContextFrame.EFlags |= EFLAGS_ALIGN_CHECK;
+    _interlockedbittestandset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
 
     //
     // And finally, restore the context, so that all register and stack
@@ -119,6 +148,19 @@ ShvVpInitialize (
     )
 {
     INT32 status;
+    INT32 cpu;
+
+    //
+    // Find the bit tracking this processor, which ShvVpRestoreAfterLaunch sets
+    //
+    cpu = ShvOsGetCurrentProcessorNumber();
+    if ((ShvVpVirtualizedBitmap == NULL) ||
+        (cpu < 0) ||
+        ((UINT32)cpu >= ShvVpVirtualizedBitmapCount))
+    {
+        return SHV_STATUS_NOT_AVAILABLE;
+    }
+    Data->ProcessorIndex = (UINT32)cpu;
 
     //
     // Prepare any OS-specific CPU data
@@ -140,15 +182,15 @@ ShvVpInitialize (
     // launch the VM, it will begin execution at the defined guest instruction
     // pointer, which we set to ShvVpRestoreAfterLaunch, with the registers set
     // to whatever value they were deep inside the VMCS/VMX initialization code.
-    // By using RtlRestoreContext, that function sets the AC flag in EFLAGS and
-    // returns here with our registers restored.
+    // That function marks this processor as virtualized and returns here with
+    // our registers restored by RtlRestoreContext.
     //
     ShvOsCaptureContext(&Data->ContextFrame);
-    if ((__readeflags() & EFLAGS_ALIGN_CHECK) == 0)
+    if (ShvIsOurHypervisorPresent() == FALSE)
     {
         //
-        // If the AC bit is not set in EFLAGS, it means that we have not yet
-        // launched the VM. Attempt to initialize VMX on this processor.
+        // If this processor is not marked as virtualized, we have not launched
+        // the VM yet. Attempt to initialize VMX on this processor.
         //
         status = ShvVmxLaunchOnVp(Data);
     }
@@ -169,6 +211,15 @@ ShvVpUnloadCallback (
     UNREFERENCED_PARAMETER(Context);
 
     //
+    // Skip processors SimpleVisor does not run on, such as one that failed to
+    // load
+    //
+    if (ShvIsOurHypervisorPresent() == FALSE)
+    {
+        return;
+    }
+
+    //
     // Send the magic shutdown instruction sequence. It will return in EAX:EBX
     // the VP data for the current CPU, which we must free.
     //
@@ -184,6 +235,7 @@ ShvVpUnloadCallback (
     {
         __analysis_assume((cpuInfo[0] != 0) && (cpuInfo[1] != 0));
         vpData = (PSHV_VP_DATA)((UINT64)cpuInfo[0] << 32 | (UINT32)cpuInfo[1]);
+        _interlockedbittestandreset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
         ShvOsFreeContiguousAlignedMemory(vpData, sizeof(*vpData));
     }
 }
@@ -284,8 +336,8 @@ ShvVpLoadCallback (
     }
 
     //
-    // Our hypervisor should now be seen as present on this LP, as the SHV
-    // correctly handles CPUID ECX features register.
+    // Our hypervisor should now run on this LP. If not, the VM was never
+    // launched here and the per-processor data can be freed.
     //
     if (ShvIsOurHypervisorPresent() == FALSE)
     {

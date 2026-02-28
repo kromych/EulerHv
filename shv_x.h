@@ -104,6 +104,11 @@ typedef struct _SHV_VP_DATA
             UINT8 UserWaitPauseEnabled;
 
             //
+            // This processor's bit in the bitmap of virtualized processors
+            //
+            UINT32 ProcessorIndex;
+
+            //
             // The VM-Exit SimpleVisor could not handle, for the debugger
             //
             UINT64 FatalExitReason;

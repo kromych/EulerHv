@@ -55,6 +55,16 @@ typedef struct _SHV_CALLBACK_CONTEXT
 SHV_CPU_CALLBACK ShvVpLoadCallback;
 SHV_CPU_CALLBACK ShvVpUnloadCallback;
 
+INT32
+ShvVpAllocateTracking (
+    _In_ UINT32 CpuCount
+    );
+
+VOID
+ShvVpFreeTracking (
+    VOID
+    );
+
 VOID
 ShvVmxEntry (
     VOID

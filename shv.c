@@ -36,6 +36,7 @@ ShvUnload (
     // perform any work, but will not fail in any way.
     //
     ShvOsRunCallbackOnProcessors(ShvVpUnloadCallback, NULL);
+    ShvVpFreeTracking();
 
     //
     // Indicate unload
@@ -49,6 +50,16 @@ ShvLoad (
     )
 {
     SHV_CALLBACK_CONTEXT callbackContext;
+    INT32 status;
+
+    //
+    // Track which logical processors SimpleVisor runs on
+    //
+    status = ShvVpAllocateTracking(ShvOsGetActiveProcessorCount());
+    if (status != SHV_STATUS_SUCCESS)
+    {
+        return status;
+    }
 
     //
     // Attempt to enter VMX root mode on all logical processors. This will
