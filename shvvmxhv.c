@@ -128,6 +128,28 @@ ShvVmxHandleFatalExit (
     vpData->FatalGuestPhysicalAddress = ShvVmxRead(GUEST_PHYSICAL_ADDRESS);
     vpData->FatalGuestLinearAddress = ShvVmxRead(GUEST_LINEAR_ADDRESS);
     vpData->FatalGuestRip = VpState->GuestRip;
+
+    //
+    // Print them along with the guest state that VM entry checks, which the
+    // debugger cannot see. After a failed VM entry this is the refused state
+    //
+    ShvOsDebugPrint("SimpleVisor: fatal VM-Exit on CPU %d, VP data 0x%llX\n",
+                    vpData->ProcessorIndex, (UINT64)vpData);
+    ShvOsDebugPrint("  Exit reason 0x%llX, qualification 0x%llX, GPA 0x%llX, GLA 0x%llX\n",
+                    (UINT64)ShvVmxRead(VM_EXIT_REASON), vpData->FatalExitQualification,
+                    vpData->FatalGuestPhysicalAddress, vpData->FatalGuestLinearAddress);
+    ShvOsDebugPrint("  RIP 0x%llX, RSP 0x%llX, RFLAGS 0x%llX, CR0 0x%llX, CR4 0x%llX\n",
+                    VpState->GuestRip, VpState->GuestRsp, VpState->GuestEFlags,
+                    (UINT64)ShvVmxRead(GUEST_CR0), (UINT64)ShvVmxRead(GUEST_CR4));
+    ShvOsDebugPrint("  CS 0x%llX (AR 0x%llX), SS 0x%llX (AR 0x%llX)\n",
+                    (UINT64)ShvVmxRead(GUEST_CS_SELECTOR), (UINT64)ShvVmxRead(GUEST_CS_AR_BYTES),
+                    (UINT64)ShvVmxRead(GUEST_SS_SELECTOR), (UINT64)ShvVmxRead(GUEST_SS_AR_BYTES));
+    ShvOsDebugPrint("  Interruptibility 0x%llX, activity state %llu, pending debug exceptions 0x%llX\n",
+                    (UINT64)ShvVmxRead(GUEST_INTERRUPTIBILITY_INFO), (UINT64)ShvVmxRead(GUEST_ACTIVITY_STATE),
+                    (UINT64)ShvVmxRead(GUEST_PENDING_DBG_EXCEPTIONS));
+    ShvOsDebugPrint("  Entry interruption 0x%llX, exit interruption 0x%llX, IDT vectoring 0x%llX\n",
+                    (UINT64)ShvVmxRead(VM_ENTRY_INTR_INFO), (UINT64)ShvVmxRead(VM_EXIT_INTR_INFO),
+                    (UINT64)ShvVmxRead(IDT_VECTORING_INFO));
     ShvVmxHalt();
 }
 
