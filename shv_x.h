@@ -104,6 +104,12 @@ typedef struct _SHV_VP_DATA
             UINT8 UserWaitPauseEnabled;
 
             //
+            // Whether VM entry rejected the HLT activity state, as nested
+            // Hyper-V does. HLT then resumes the guest right away
+            //
+            UINT8 HltActivityStateRejected;
+
+            //
             // This processor's bit in the bitmap of virtualized processors
             //
             UINT32 ProcessorIndex;
