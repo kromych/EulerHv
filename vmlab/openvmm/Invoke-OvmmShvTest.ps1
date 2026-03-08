@@ -25,6 +25,12 @@
     Do not check that the kernel debugger can attach over the VM's serial pipe
     before loading SimpleVisor.
 
+.PARAMETER AttachDebugger
+    Keep kd attached over the serial pipe for the whole test, in its own
+    window, so that it catches SimpleVisor's output and any halt. Its output
+    is shown after the test and logged to kd-attached.log in the lab
+    directory. If the guest stops responding, kd stays attached.
+
 .PARAMETER KeepRunning
     Leave the VM running after the test, e.g. to explore it over SSH. Its disk
     is a throwaway diff, so changes are lost when it stops.
@@ -33,6 +39,7 @@
 param (
     [switch] $SkipBuild,
     [switch] $SkipDebuggerCheck,
+    [switch] $AttachDebugger,
     [switch] $KeepRunning,
     [int] $BootTimeoutSec = 600,
     [int] $TimeoutSec = 300
@@ -55,9 +62,9 @@ $vm = Start-OvmmLabVm -Mode test
 Wait-OvmmGuest -Process $vm -TimeoutSec $BootTimeoutSec
 
 $kdCheck = $null
-if (-not $SkipDebuggerCheck) {
+if ($AttachDebugger -or -not $SkipDebuggerCheck) {
     Write-Host 'Checking that the kernel debugger can break in over the serial pipe...'
-    $kdCheck = Test-OvmmKernelDebugger
+    $kdCheck = Test-OvmmKernelDebugger -KeepAttached:$AttachDebugger
     if ($kdCheck.Connected -and $kdCheck.Resumed) {
         Write-Host "  connected: $($kdCheck.Target)"
     }
@@ -88,7 +95,12 @@ if ($run.TimedOut) {
     Write-Host ''
     Write-Host "FAIL: the guest stopped responding within $TimeoutSec seconds." -ForegroundColor Red
     Write-Host "  OpenVMM (PID $($vm.Id)) is left running; stop it with Stop-OvmmLabVm (dot-source OvmmLab.ps1)."
-    Write-Host '  Attach the kernel debugger with ..\Connect-LabDebugger.ps1 -OpenVmm to see where it stopped.'
+    if ($kdCheck.Process) {
+        Write-Host "  kd is attached (PID $($kdCheck.Process.Id)), logging to $($kdCheck.LogPath)."
+    }
+    else {
+        Write-Host '  Attach the kernel debugger with ..\Connect-LabDebugger.ps1 -OpenVmm to see where it stopped.'
+    }
     exit 2
 }
 
@@ -99,7 +111,12 @@ Copy-OvmmFromGuest -Path "$GuestLabDir\result.txt" -Destination $resultFile
 $failed = Show-LabResult -Result (Read-LabResult -Path $resultFile) -ResultFile $resultFile -KdCheck $kdCheck `
                          -NoVmxHint 'OpenVMM was expected to expose it (--nested-virt); see the openvmm-test.log in the lab directory.'
 
+if ($kdCheck.Process) {
+    Show-LabDebuggerOutput -KdCheck $kdCheck
+}
+
 if (-not $KeepRunning) {
+    Stop-LabKernelDebugger -KdCheck $kdCheck
     Stop-OvmmLabVm
 }
 

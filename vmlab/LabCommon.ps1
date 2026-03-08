@@ -536,7 +536,9 @@ function Test-LabKernelDebugger {
         [string] $PipeName = $LabDefaults.PipeName,
         [scriptblock] $TestGuest,
         [string] $WdkRoot = $LabDefaults.WdkRoot,
-        [int] $TimeoutSec = 120
+        [int] $TimeoutSec = 120,
+        [switch] $KeepAttached,
+        [string] $LogPath
     )
 
     #
@@ -549,6 +551,9 @@ function Test-LabKernelDebugger {
     #
     # TestGuest tells whether the guest responds, and defaults to a VMware
     # guest operation on the given VM.
+    #
+    # With KeepAttached, kd stays attached in its own window and logs to
+    # LogPath. Stop it with Stop-LabKernelDebugger.
     #
     if (-not $TestGuest) {
         $TestGuest = { Test-GuestFile -Vmx $Vmx -Path "$GuestLabDir\ready.txt" }.GetNewClosure()
@@ -564,7 +569,7 @@ function Test-LabKernelDebugger {
     }
 
     $marker = 'SHVLAB-KD-CONNECTED'
-    $log = Join-Path ([System.IO.Path]::GetTempPath()) "shvlab-kd-$PID.log"
+    $log = if ($LogPath) { $LogPath } else { Join-Path ([System.IO.Path]::GetTempPath()) "shvlab-kd-$PID.log" }
     Remove-Item -Path $log -ErrorAction SilentlyContinue
     $arguments = (Get-LabDebuggerArguments -PipeName $PipeName) + @('-logo', $log, '-c', "vertarget; .echo $marker; g")
 
@@ -575,7 +580,8 @@ function Test-LabKernelDebugger {
     $symbolPath = $env:_NT_SYMBOL_PATH
     $env:_NT_SYMBOL_PATH = $null
     try {
-        $kd = Start-Process -FilePath (Get-LabDebugger -WdkRoot $WdkRoot -Console) -WindowStyle Hidden -PassThru `
+        $kd = Start-Process -FilePath (Get-LabDebugger -WdkRoot $WdkRoot -Console) -PassThru `
+                            -WindowStyle $(if ($KeepAttached) { 'Normal' } else { 'Hidden' }) `
                             -ArgumentList (($arguments | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' ')
     }
     finally {
@@ -603,13 +609,15 @@ function Test-LabKernelDebugger {
         }
     }
     finally {
-        if (-not $kd.HasExited) {
+        if ((-not $kd.HasExited) -and -not ($KeepAttached -and $resumed)) {
             Stop-Process -Id $kd.Id -Force
         }
     }
 
     $text = if (Test-Path $log) { Get-Content -Raw -Path $log } else { '' }
-    Remove-Item -Path $log -ErrorAction SilentlyContinue
+    if (-not $KeepAttached) {
+        Remove-Item -Path $log -ErrorAction SilentlyContinue
+    }
     if (-not $resumed) {
         $text += $notResumed
     }
@@ -618,6 +626,36 @@ function Test-LabKernelDebugger {
         Resumed   = $resumed
         Target    = ([regex]::Match($text, '(?m)^Windows .*Kernel Version.*$')).Value.Trim()
         Log       = $text
+        LogPath   = $log
+        Process   = if ($KeepAttached -and $resumed) { $kd } else { $null }
+    }
+}
+
+function Show-LabDebuggerOutput {
+    param ([Parameter(Mandatory)] $KdCheck)
+
+    #
+    # Show what the guest printed to the attached kd since it connected
+    #
+    $text = if (Test-Path $KdCheck.LogPath) { Get-Content -Raw -Path $KdCheck.LogPath } else { '' }
+    $index = $text.LastIndexOf('SHVLAB-KD-CONNECTED')
+    if ($index -lt 0) {
+        return
+    }
+    Write-Host ''
+    Write-Host "Kernel debugger output (full log: $($KdCheck.LogPath)):"
+    foreach ($line in ($text.Substring($index) -split '\r?\n' | Select-Object -Skip 1)) {
+        if ($line.Trim()) {
+            Write-Host "  $line"
+        }
+    }
+}
+
+function Stop-LabKernelDebugger {
+    param ($KdCheck)
+
+    if ($KdCheck -and $KdCheck.Process -and -not $KdCheck.Process.HasExited) {
+        Stop-Process -Id $KdCheck.Process.Id -Force
     }
 }
 

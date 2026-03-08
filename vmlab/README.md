@@ -97,9 +97,12 @@ Before each test, `Invoke-ShvTest.ps1` checks that this works, unless you pass
 
 The guest test also checks the guest's BCD debug settings.
 
-When SimpleVisor can't handle a VM-Exit, it saves the exit details in the
-`Fatal*` fields of its per-processor `SHV_VP_DATA` and breaks into the
-debugger. Attach with:
+When SimpleVisor can't handle a VM-Exit, it prints the exit details and the
+guest state to the debugger, saves them in the `Fatal*` fields of its
+per-processor `SHV_VP_DATA`, and breaks in. On unload, it prints how many
+VM-Exits it handled per exit reason. To catch this output during a test, pass
+`-AttachDebugger`. kd then stays attached in its own window, the test shows
+its output at the end, and logs it to `out\kd-attached.log`. Or attach with:
 
 ```powershell
 .\Connect-LabDebugger.ps1            # WinDbg

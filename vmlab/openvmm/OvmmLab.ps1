@@ -255,8 +255,12 @@ function Wait-OvmmGuest {
 }
 
 function Test-OvmmKernelDebugger {
-    param ([int] $TimeoutSec = 120)
+    param (
+        [int] $TimeoutSec = 120,
+        [switch] $KeepAttached
+    )
 
     Test-LabKernelDebugger -PipeName $OvmmDefaults.PipeName -TimeoutSec $TimeoutSec `
-                           -TestGuest { Test-OvmmGuestFile -Path "$GuestLabDir\ready.txt" }
+                           -TestGuest { Test-OvmmGuestFile -Path "$GuestLabDir\ready.txt" } `
+                           -KeepAttached:$KeepAttached -LogPath (Get-OvmmLabFile 'kd-attached.log')
 }

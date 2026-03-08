@@ -28,6 +28,12 @@
     Do not check that the kernel debugger can attach over the VM's serial pipe
     before loading SimpleVisor.
 
+.PARAMETER AttachDebugger
+    Keep kd attached over the serial pipe for the whole test, in its own
+    window, so that it catches SimpleVisor's output and any halt. Its output
+    is shown after the test and logged to vmlab\out\kd-attached.log. If the
+    guest stops responding, kd stays attached.
+
 .PARAMETER KeepRunning
     Leave the VM running after the test, e.g. to explore it.
 #>
@@ -39,6 +45,7 @@ param (
     [switch] $KeepRunning,
     [switch] $Gui,
     [switch] $SkipDebuggerCheck,
+    [switch] $AttachDebugger,
     [int] $TimeoutSec = 300
 )
 
@@ -70,9 +77,10 @@ Invoke-VmRun -Arguments @('start', $vmxPath, $display) | Out-Null
 Wait-LabGuest -Vmx $vmxPath
 
 $kdCheck = $null
-if (-not $SkipDebuggerCheck) {
+if ($AttachDebugger -or -not $SkipDebuggerCheck) {
     Write-Host 'Checking that the kernel debugger can break in over the serial pipe...'
-    $kdCheck = Test-LabKernelDebugger -Vmx $vmxPath
+    $kdCheck = Test-LabKernelDebugger -Vmx $vmxPath -KeepAttached:$AttachDebugger `
+                                      -LogPath (Join-Path $outDir 'kd-attached.log')
     if ($kdCheck.Connected -and $kdCheck.Resumed) {
         Write-Host "  connected: $($kdCheck.Target)"
     }
@@ -113,7 +121,12 @@ if ($run.TimedOut) {
     Write-Host ''
     Write-Host "FAIL: the guest stopped responding within $TimeoutSec seconds." -ForegroundColor Red
     Write-Host "  The VM is left running. Screenshot of its console: $screenshot"
-    Write-Host '  Attach the kernel debugger with .\Connect-LabDebugger.ps1 to see where it stopped.'
+    if ($kdCheck.Process) {
+        Write-Host "  kd is attached (PID $($kdCheck.Process.Id)), logging to $($kdCheck.LogPath)."
+    }
+    else {
+        Write-Host '  Attach the kernel debugger with .\Connect-LabDebugger.ps1 to see where it stopped.'
+    }
     exit 2
 }
 
@@ -125,7 +138,12 @@ $failed = Show-LabResult -Result (Read-LabResult -Path $resultFile) -ResultFile 
                          -NoVmxHint ('The VM was created without virtualized VT-x/EPT, because the host runs a ' +
                                      'hypervisor; see README.md, or use the OpenVMM lab instead.')
 
+if ($kdCheck.Process) {
+    Show-LabDebuggerOutput -KdCheck $kdCheck
+}
+
 if (-not $KeepRunning) {
+    Stop-LabKernelDebugger -KdCheck $kdCheck
     Invoke-VmRun -Arguments @('stop', $vmxPath, 'hard') | Out-Null
 }
 
