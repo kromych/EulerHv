@@ -208,7 +208,7 @@ ShvVpUnloadCallback (
 {
     INT32 cpuInfo[4];
     PSHV_VP_DATA vpData;
-    UNREFERENCED_PARAMETER(Context);
+    UINT32 i;
 
     //
     // Skip processors SimpleVisor does not run on, such as one that failed to
@@ -221,7 +221,7 @@ ShvVpUnloadCallback (
 
     //
     // Send the magic shutdown instruction sequence. It will return in EAX:EBX
-    // the VP data for the current CPU, which we must free.
+    // the VP data for the current CPU. Add up its exit counters and free it.
     //
     cpuInfo[0] = cpuInfo[1] = 0;
     __cpuidex(cpuInfo, 0x41414141, 0x42424242);
@@ -236,6 +236,10 @@ ShvVpUnloadCallback (
         __analysis_assume((cpuInfo[0] != 0) && (cpuInfo[1] != 0));
         vpData = (PSHV_VP_DATA)((UINT64)cpuInfo[0] << 32 | (UINT32)cpuInfo[1]);
         _interlockedbittestandreset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
+        for (i = 0; i < SHV_EXIT_REASON_COUNT; i++)
+        {
+            _InterlockedExchangeAdd64(&Context->ExitCounts[i], (INT64)vpData->ExitCounts[i]);
+        }
         ShvOsFreeContiguousAlignedMemory(vpData, sizeof(*vpData));
     }
 }

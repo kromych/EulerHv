@@ -589,6 +589,18 @@ ShvVmxEntryHandler (
     guestContext.SkipRipAdvance = FALSE;
 
     //
+    // Count the exit. Higher exit reasons share the last counter
+    //
+    if (guestContext.ExitReason < SHV_EXIT_REASON_COUNT)
+    {
+        vpData->ExitCounts[guestContext.ExitReason]++;
+    }
+    else
+    {
+        vpData->ExitCounts[SHV_EXIT_REASON_COUNT - 1]++;
+    }
+
+    //
     // Call the generic handler
     //
     ShvVmxHandleExit(&guestContext);

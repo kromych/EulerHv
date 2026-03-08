@@ -50,6 +50,7 @@ typedef struct _SHV_CALLBACK_CONTEXT
     volatile long InitCount;
     INT32 FailedCpu;
     INT32 FailureStatus;
+    volatile INT64 ExitCounts[SHV_EXIT_REASON_COUNT];
 } SHV_CALLBACK_CONTEXT, *PSHV_CALLBACK_CONTEXT;
 
 SHV_CPU_CALLBACK ShvVpLoadCallback;

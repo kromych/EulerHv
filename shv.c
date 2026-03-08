@@ -27,6 +27,10 @@ ShvUnload (
     VOID
     )
 {
+    SHV_CALLBACK_CONTEXT callbackContext;
+    UINT64 total;
+    UINT32 i;
+
     //
     // Attempt to exit VMX root mode on all logical processors. This will
     // broadcast an interrupt which will execute the callback routine in
@@ -35,8 +39,35 @@ ShvUnload (
     // Note that if SHV is not loaded on any of the LPs, this routine will not
     // perform any work, but will not fail in any way.
     //
-    ShvOsRunCallbackOnProcessors(ShvVpUnloadCallback, NULL);
+    // Each LP adds its VM-Exit counters to the callback context
+    //
+    __stosb((UINT8*)&callbackContext, 0, sizeof(callbackContext));
+    ShvOsRunCallbackOnProcessors(ShvVpUnloadCallback, &callbackContext);
     ShvVpFreeTracking();
+
+    //
+    // Report the VM-Exits per exit reason (EXIT_REASON_* in vmx.h)
+    //
+    total = 0;
+    for (i = 0; i < SHV_EXIT_REASON_COUNT; i++)
+    {
+        total += (UINT64)callbackContext.ExitCounts[i];
+    }
+    ShvOsDebugPrint("The SHV handled %llu VM-Exits\n", total);
+    for (i = 0; i < SHV_EXIT_REASON_COUNT - 1; i++)
+    {
+        if (callbackContext.ExitCounts[i] != 0)
+        {
+            ShvOsDebugPrint("  Exit reason %d: %llu\n",
+                            i, (UINT64)callbackContext.ExitCounts[i]);
+        }
+    }
+    if (callbackContext.ExitCounts[SHV_EXIT_REASON_COUNT - 1] != 0)
+    {
+        ShvOsDebugPrint("  Exit reasons %d and higher: %llu\n",
+                        SHV_EXIT_REASON_COUNT - 1,
+                        (UINT64)callbackContext.ExitCounts[SHV_EXIT_REASON_COUNT - 1]);
+    }
 
     //
     // Indicate unload

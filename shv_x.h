@@ -36,6 +36,11 @@ Environment:
 #define SHV_STACK_CANARY            0x6B63617453766853 // 'kcatSvhS'
 
 //
+// VM-Exit reasons counted separately. Higher ones share the last counter
+//
+#define SHV_EXIT_REASON_COUNT       80
+
+//
 // EPT PML4 entries SimpleVisor can populate. The first maps the low 512GB with
 // 2MB pages and the rest use 1GB pages when supported, for up to 8TB
 //
@@ -113,6 +118,11 @@ typedef struct _SHV_VP_DATA
             // This processor's bit in the bitmap of virtualized processors
             //
             UINT32 ProcessorIndex;
+
+            //
+            // VM-Exits per exit reason, reported to the debugger on unload
+            //
+            UINT64 ExitCounts[SHV_EXIT_REASON_COUNT];
 
             //
             // The VM-Exit SimpleVisor could not handle, for the debugger
