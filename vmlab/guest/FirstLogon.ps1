@@ -9,6 +9,7 @@
 #   - VMware: VMware Tools, from the Tools CD attached to the VM, for vmrun
 #   - OpenVMM: the virtio NIC driver (vmlab\netkvm) and the OpenSSH server,
 #     with the lab's key (vmlab\id_lab.pub), for ssh and scp
+#   - Hyper-V: nothing, as PowerShell Direct is inbox (vmlab\hyperv.txt)
 #
 
 $ErrorActionPreference = 'Continue'
@@ -120,8 +121,15 @@ if (Test-Path $labKey) {
     $channel = $true
 }
 
+#
+# For Hyper-V (vmlab\hyperv.txt): PowerShell Direct, which is inbox
+#
+if (Test-Path (Join-Path $PSScriptRoot 'hyperv.txt')) {
+    $channel = $true
+}
+
 if (-not $channel) {
-    Write-Warning 'Neither the VMware Tools CD nor the OpenSSH key was found; the host cannot drive this guest.'
+    Write-Warning 'Neither the VMware Tools CD, the OpenSSH key, nor PowerShell Direct was found; the host cannot drive this guest.'
 }
 
 #

@@ -2,7 +2,7 @@
 
 These scripts build a VM for loading SimpleVisor, unloading it, and checking
 what the guest sees while it's loaded. When SimpleVisor halts or the guest
-bugchecks, you can debug it. There are two flavors, which share the build, the
+bugchecks, you can debug it. There are three flavors, which share the build, the
 guest setup, the guest test and the checks:
 
 - **VMware Workstation** (this directory). The guest sees VMware underneath, so
@@ -13,6 +13,9 @@ guest setup, the guest test and the checks:
   can nest VT-x even on hosts that run Hyper-V or VBS. The guest sees Hyper-V
   underneath (`Hv#1`), so the lab exercises SimpleVisor's paths for Hyper-V. See
   [The OpenVMM lab](#the-openvmm-lab).
+- **Hyper-V** (`hyperv\`). Hyper-V nests VT-x with its nested virtualization,
+  so SimpleVisor runs under the real Hyper-V, with VMBus. It needs no builds
+  besides SimpleVisor's. See [The Hyper-V lab](#the-hyper-v-lab).
 
 ## Requirements
 
@@ -197,6 +200,58 @@ cd vmlab\openvmm
 - **The lab** lives in `Documents\Virtual Machines\SimpleVisorLabOvmm`: the
   disk, the SSH key, and OpenVMM's logs and output.
 
+## The Hyper-V lab
+
+`hyperv\` has the same lab for Hyper-V. Hyper-V exposes VT-x to the guest with
+nested virtualization, so SimpleVisor runs under the real Hyper-V, with VMBus
+and its synthetic devices. The guest sees Hyper-V underneath (`Hv#1`).
+
+### Requirements
+
+- The Hyper-V feature on the host, with its PowerShell module.
+- Membership in the Hyper-V Administrators group. The scripts need no elevated
+  prompt then, not even for PowerShell Direct or the debugger pipe.
+- The same tools as the VMware lab: the EWDK and the ADK's `oscdimg.exe`.
+
+### Usage
+
+```powershell
+cd vmlab\hyperv
+
+# Once: create the VM. This takes about 10-20 minutes and is fully unattended.
+.\New-HvLabVm.ps1 -IsoPath D:\iso\Server2025_Eval.iso -ImageName 'Windows Server 2025 SERVERSTANDARD'
+
+# Every time: build, deploy, load, check, unload.
+.\Invoke-HvShvTest.ps1
+
+# Attach the debugger.
+..\Connect-LabDebugger.ps1 -HyperV
+```
+
+### How it differs from the VMware lab
+
+- **The VM** is `SimpleVisorLabHv`, a generation 2 VM with Secure Boot off,
+  nested virtualization, 4 vCPUs, 4 GB of static memory (nested virtualization
+  rules out dynamic memory) and a 64 GB VHDX. It has no NIC.
+- **PowerShell Direct instead of VMware Tools.** The host runs commands and
+  copies files over VMBus, as the guest's Administrator, so the guest needs no
+  network and no setup. A command that doesn't return in time, e.g. because
+  SimpleVisor halted the guest, counts as the guest having stopped responding.
+- **The checkpoint** `clean` is taken while the VM is off, as a VM with nested
+  virtualization can't be saved. Each test therefore reverts to it and cold
+  boots.
+- **The console.** There's no VNC. Screenshots come from Hyper-V's thumbnail of
+  the console, so they work after a hang or a bugcheck too, and `Send-HvKeys`
+  types into it. `vmconnect localhost SimpleVisorLabHv` shows it live.
+
+  ```powershell
+  . .\HvLab.ps1; Save-HvScreenshot -Path .\screen.png
+  ```
+- **The debugger pipe** is `\\.\pipe\SimpleVisorLabHv`, on COM1. Hyper-V is the
+  pipe server, while the VM runs.
+- **The lab** lives in `Documents\Virtual Machines\SimpleVisorLabHv`: the VM's
+  configuration, its disk and checkpoint, and the test's results and logs.
+
 ## What the scripts do
 
 | Script | Purpose |
@@ -204,13 +259,16 @@ cd vmlab\openvmm
 | `New-LabVm.ps1` | Creates the VM from the ISO, installs Windows unattended, and takes the `clean` snapshot. |
 | `Build-LabArtifacts.ps1` | Builds `shv.sys` and `shvcheck.exe` with the EWDK, and test-signs `shv.sys`. |
 | `Invoke-ShvTest.ps1` | Reverts to `clean`, copies the files in, runs the guest test, and checks the results. |
-| `Connect-LabDebugger.ps1` | Attaches WinDbg or kd to the VM's serial pipe (`-OpenVmm` for the OpenVMM VM). |
+| `Connect-LabDebugger.ps1` | Attaches WinDbg or kd to the VM's serial pipe (`-OpenVmm` for the OpenVMM VM, `-HyperV` for the Hyper-V one). |
 | `LabCommon.ps1` | Shared settings (VM name and location, guest credentials) and helpers: install media, kd, VNC, result checks. |
 | `openvmm\New-OvmmLabVm.ps1` | Creates the OpenVMM VM's clean disk from the ISO, installing Windows unattended. |
 | `openvmm\Invoke-OvmmShvTest.ps1` | Boots a diff of the clean disk with VT-x exposed, and runs the same test as `Invoke-ShvTest.ps1`. |
 | `openvmm\OvmmLab.ps1` | OpenVMM settings and helpers: command lines, start and stop, SSH. |
+| `hyperv\New-HvLabVm.ps1` | Creates the Hyper-V VM from the ISO, installs Windows unattended, and takes the `clean` checkpoint. |
+| `hyperv\Invoke-HvShvTest.ps1` | Reverts to `clean`, and runs the same test as `Invoke-ShvTest.ps1` over PowerShell Direct. |
+| `hyperv\HvLab.ps1` | Hyper-V settings and helpers: PowerShell Direct, screenshots, typing into the console. |
 | `unattend\autounattend.xml` | The Windows Setup answer file template. |
-| `guest\FirstLogon.ps1` | Runs once in the new guest to set it up for SimpleVisor, and for VMware Tools or SSH. |
+| `guest\FirstLogon.ps1` | Runs once in the new guest to set it up for SimpleVisor, and for VMware Tools, SSH or PowerShell Direct. |
 | `guest\Test-ShvGuest.ps1` | Runs in the guest for each test: load, probe, unload. |
 | `guest\shvcheck.c` | The guest probe, which reports the CPUID state that SimpleVisor affects. |
 
@@ -243,7 +301,8 @@ Administrator account. On first logon, `FirstLogon.ps1` makes these changes:
 - Keeps bugchecks on screen instead of rebooting.
 - Turns off sleep and automatic Windows Update.
 - Installs VMware Tools, which `vmrun` needs to drive the guest. In the OpenVMM
-  lab it installs the virtio NIC driver and the OpenSSH server instead.
+  lab it installs the virtio NIC driver and the OpenSSH server instead. The
+  Hyper-V lab needs neither, as PowerShell Direct is inbox.
 - Reboots.
 
 ### Credentials
