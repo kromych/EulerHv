@@ -189,6 +189,8 @@ ShvVmxHandleCpuid (
     )
 {
     INT32 cpu_info[4];
+    UINT32 reason;
+    UINT64 count;
 
     //
     // Check for the magic CPUID sequence, and check that it is coming from
@@ -215,6 +217,26 @@ ShvVmxHandleCpuid (
         VpState->VpRegs->Rax = ' vhS';
         VpState->VpRegs->Rbx = 0;
         VpState->VpRegs->Rcx = 0;
+        VpState->VpRegs->Rdx = 0;
+        return;
+    }
+
+    //
+    // Magic CPUID sequence to read this processor's VM-Exit counters, as
+    // vmlab\guest\shvcheck.c does, one exit reason (EXIT_REASON_* in vmx.h) per
+    // call, given in the low 16 bits of ECX. Returns the count in EBX:EAX, and
+    // the number of counters in ECX. This exit is already counted.
+    //
+    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
+        (((UINT32)VpState->VpRegs->Rcx & 0xFFFF0000) == 0x45450000))
+    {
+        reason = (UINT32)VpState->VpRegs->Rcx & 0xFFFF;
+        count = (reason < SHV_EXIT_REASON_COUNT) ?
+                VpState->VpData->ExitCounts[reason] : 0;
+
+        VpState->VpRegs->Rax = count & 0xFFFFFFFF;
+        VpState->VpRegs->Rbx = count >> 32;
+        VpState->VpRegs->Rcx = SHV_EXIT_REASON_COUNT;
         VpState->VpRegs->Rdx = 0;
         return;
     }

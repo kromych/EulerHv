@@ -50,6 +50,88 @@ TryWaitPkg (
     return "ok";
 }
 
+#define MAX_EXIT_COUNTERS 256
+
+static
+VOID
+ReportExitCounts (
+    VOID
+    )
+{
+    static UINT64 counts[MAX_EXIT_COUNTERS];
+    GROUP_AFFINITY affinity;
+    GROUP_AFFINITY previous;
+    INT32 cpuInfo[4];
+    UINT32 counters;
+    UINT32 processors;
+    UINT32 reason;
+    UINT64 total;
+    WORD group;
+    DWORD index;
+
+    //
+    // SimpleVisor counts VM-Exits per processor, and a magic CPUID leaf reads
+    // the counters of the processor it runs on. So run on each processor in
+    // turn, and add up the counters of those that SimpleVisor runs on, as
+    // told by the detection leaf. The reads are CPUID exits themselves, and
+    // count too.
+    //
+    counters = 0;
+    processors = 0;
+    GetThreadGroupAffinity(GetCurrentThread(), &previous);
+    for (group = 0; group < GetActiveProcessorGroupCount(); group++)
+    {
+        for (index = 0; index < GetActiveProcessorCount(group); index++)
+        {
+            ZeroMemory(&affinity, sizeof(affinity));
+            affinity.Group = group;
+            affinity.Mask = (KAFFINITY)1 << index;
+            if (!SetThreadGroupAffinity(GetCurrentThread(), &affinity, NULL))
+            {
+                continue;
+            }
+
+            __cpuidex(cpuInfo, 0x41414141, 0x44444444);
+            if (cpuInfo[0] != ' vhS')
+            {
+                continue;
+            }
+            processors++;
+
+            for (reason = 0; reason < MAX_EXIT_COUNTERS; reason++)
+            {
+                __cpuidex(cpuInfo, 0x41414141, 0x45450000 | reason);
+                counters = min((UINT32)cpuInfo[2], MAX_EXIT_COUNTERS);
+                if (reason >= counters)
+                {
+                    break;
+                }
+                counts[reason] += ((UINT64)(UINT32)cpuInfo[1] << 32) | (UINT32)cpuInfo[0];
+            }
+        }
+    }
+    SetThreadGroupAffinity(GetCurrentThread(), &previous, NULL);
+
+    //
+    // One line per exit reason (EXIT_REASON_* in SimpleVisor's vmx.h) that
+    // occurred. The last counter also takes all higher exit reasons.
+    //
+    total = 0;
+    for (reason = 0; reason < counters; reason++)
+    {
+        total += counts[reason];
+    }
+    printf("exits.processors=%u\n", processors);
+    printf("exits.total=%llu\n", total);
+    for (reason = 0; reason < counters; reason++)
+    {
+        if (counts[reason] != 0)
+        {
+            printf("exits.%u=%llu\n", reason, counts[reason]);
+        }
+    }
+}
+
 int
 main (
     VOID
@@ -91,6 +173,14 @@ main (
     //
     __cpuidex(cpuInfo, 0x41414141, 0x44444444);
     printf("simplevisor=%d\n", cpuInfo[0] == ' vhS');
+
+    //
+    // The VM-Exits SimpleVisor handled so far, while it is loaded
+    //
+    if (cpuInfo[0] == ' vhS')
+    {
+        ReportExitCounts();
+    }
 
     //
     // CPUID 7h.0: WAITPKG must either work, or be hidden

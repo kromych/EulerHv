@@ -428,6 +428,8 @@ function Show-LabResult {
         @{ Name = 'Hypervisor vendor leaf unchanged while loaded';      Pass = (& $get 'loaded.hv_vendor') -eq (& $get 'before.hv_vendor') }
         @{ Name = 'Hypervisor interface leaf unchanged while loaded';   Pass = (& $get 'loaded.hv_interface') -eq (& $get 'before.hv_interface') }
         @{ Name = 'WAITPKG hidden, or usable, while loaded';            Pass = (& $get 'loaded.waitpkg_exec') -in @('ok', 'skipped') }
+        @{ Name = 'VM-Exit counters readable while loaded';             Pass = ((& $get 'loaded.exits.processors') -match '^[1-9]') -and
+                                                                               ((& $get 'loaded.exits.total') -match '^[1-9]') }
         @{ Name = 'sc stop simplevisor succeeded';                      Pass = (& $get 'unload.exit') -eq '0' }
         @{ Name = 'SimpleVisor not detected after unloading';           Pass = (& $get 'after.simplevisor') -eq '0' }
     )
@@ -439,6 +441,18 @@ function Show-LabResult {
     Write-Host ("Underlying hypervisor: {0} ({1}); WAITPKG before/loaded: {2}/{3} ({4})" -f
         (& $get 'before.hv_vendor'), (& $get 'before.hv_interface'),
         (& $get 'before.waitpkg'), (& $get 'loaded.waitpkg'), (& $get 'loaded.waitpkg_exec'))
+
+    #
+    # The VM-Exits SimpleVisor handled until shvcheck.exe ran while it was
+    # loaded, per exit reason (EXIT_REASON_* in vmx.h)
+    #
+    if ($Result.ContainsKey('loaded.exits.total')) {
+        $reasons = $Result.Keys | Where-Object { $_ -match '^loaded\.exits\.(\d+)$' } |
+                   Sort-Object { [int] ($_ -split '\.')[2] } |
+                   ForEach-Object { "$(($_ -split '\.')[2]): $($Result[$_])" }
+        Write-Host ("VM-Exits while loaded: {0} on {1} processors ({2})" -f
+            (& $get 'loaded.exits.total'), (& $get 'loaded.exits.processors'), ($reasons -join ', '))
+    }
     if ((& $get 'load.exit') -ne '0') {
         Write-Host "sc start: $(& $get 'load.output')"
     }
