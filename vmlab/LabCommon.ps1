@@ -6,6 +6,17 @@
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+#
+# Windows PowerShell started from PowerShell 7, even indirectly, inherits its
+# module path, and then loads PowerShell 7's own modules, which fail to load.
+# That takes ConvertTo-SecureString and the certificate drive's
+# -CodeSigningCert with them. Keep to Windows PowerShell's modules there.
+#
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $env:PSModulePath = ($env:PSModulePath -split ';' |
+                         Where-Object { $_ -and ($_ -notmatch '\\PowerShell\\(7[^\\]*\\)?Modules\\?$') }) -join ';'
+}
+
 $script:RepoRoot = Split-Path $PSScriptRoot -Parent
 
 #

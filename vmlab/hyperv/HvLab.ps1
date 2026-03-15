@@ -50,14 +50,7 @@ function Get-HvLabVm {
 }
 
 function Get-HvLabCredential {
-    #
-    # Not with ConvertTo-SecureString: its module fails to load into Windows
-    # PowerShell started from PowerShell 7, which passes on its module path
-    #
-    $password = New-Object System.Security.SecureString
-    foreach ($char in $LabDefaults.AdminPassword.ToCharArray()) {
-        $password.AppendChar($char)
-    }
+    $password = ConvertTo-SecureString -String $LabDefaults.AdminPassword -AsPlainText -Force
     New-Object System.Management.Automation.PSCredential ($LabDefaults.AdminUser, $password)
 }
 
