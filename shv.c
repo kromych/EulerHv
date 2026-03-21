@@ -22,6 +22,11 @@ Environment:
 
 #include "shv.h"
 
+//
+// The hardware virtualization backend SimpleVisor runs on
+//
+const SHV_ARCH* ShvArch;
+
 VOID
 ShvUnload (
     VOID
@@ -82,6 +87,11 @@ ShvLoad (
 {
     SHV_CALLBACK_CONTEXT callbackContext;
     INT32 status;
+
+    //
+    // VT-x is the only backend
+    //
+    ShvArch = &ShvVmxArch;
 
     //
     // Track which logical processors SimpleVisor runs on

@@ -20,178 +20,7 @@ Environment:
 
 --*/
 
-#include "shv.h"
-
-VOID
-ShvVmxDetectUnderlyingHypervisor (
-    _In_ PSHV_VP_DATA VpData
-    )
-{
-    INT32 cpuInfo[4];
-
-    //
-    // VMX is not enabled yet, so CPUID reaches the processor or the
-    // hypervisor we are nested under, which sets the Hypervisor Present-bit
-    //
-    __cpuid(cpuInfo, 1);
-    VpData->UnderlyingHypervisor = (cpuInfo[2] & HYPERV_HYPERVISOR_PRESENT_BIT) != 0;
-    if (VpData->UnderlyingHypervisor == FALSE)
-    {
-        return;
-    }
-
-    //
-    // Check for the "VMwareVMware" and "Microsoft Hv" vendor signatures
-    //
-    __cpuid(cpuInfo, HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS);
-    VpData->UnderlyingHypervisorIsVmware = (cpuInfo[1] == 'awMV') &&
-                                           (cpuInfo[2] == 'MVer') &&
-                                           (cpuInfo[3] == 'eraw');
-    VpData->UnderlyingHypervisorIsHyperV = (cpuInfo[1] == 'rciM') &&
-                                           (cpuInfo[2] == 'foso') &&
-                                           (cpuInfo[3] == 'vH t');
-}
-
-VOID
-ShvVmxMtrrInitialize (
-    _In_ PSHV_VP_DATA VpData
-    )
-{
-    UINT32 i;
-    MTRR_CAPABILITIES mtrrCapabilities;
-    MTRR_VARIABLE_BASE mtrrBase;
-    MTRR_VARIABLE_MASK mtrrMask;
-    unsigned long bit;
-
-    //
-    // Read the capabilities mask
-    //
-    mtrrCapabilities.AsUlonglong = __readmsr(MTRR_MSR_CAPABILITIES);
-
-    //
-    // Iterate over each variable MTRR, up to as many as we can track
-    //
-    for (i = 0; (i < mtrrCapabilities.VarCnt) &&
-                (i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0])); i++)
-    {
-        //
-        // Capture the value
-        //
-        mtrrBase.AsUlonglong = __readmsr(MTRR_MSR_VARIABLE_BASE + i * 2);
-        mtrrMask.AsUlonglong = __readmsr(MTRR_MSR_VARIABLE_MASK + i * 2);
-
-        //
-        // Check if the MTRR is enabled
-        //
-        VpData->MtrrData[i].Type = (UINT32)mtrrBase.Type;
-        VpData->MtrrData[i].Enabled = (UINT32)mtrrMask.Enabled;
-        if (VpData->MtrrData[i].Enabled != FALSE)
-        {
-            //
-            // Set the base
-            //
-            VpData->MtrrData[i].PhysicalAddressMin = mtrrBase.PhysBase *
-                                                     MTRR_PAGE_SIZE;
-
-            //
-            // Compute the length
-            //
-            _BitScanForward64(&bit, mtrrMask.PhysMask * MTRR_PAGE_SIZE);
-            VpData->MtrrData[i].PhysicalAddressMax = VpData->MtrrData[i].
-                                                     PhysicalAddressMin +
-                                                     (1ULL << bit) - 1;
-        }
-    }
-}
-
-UINT32
-ShvVmxMtrrAdjustEffectiveMemoryType (
-    _In_ PSHV_VP_DATA VpData,
-    _In_ UINT64 LargePageAddress,
-    _In_ UINT32 CandidateMemoryType
-    )
-{
-    UINT32 i;
-
-    //
-    // Loop each MTRR range
-    //
-    for (i = 0; i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0]); i++)
-    {
-        //
-        // Check if it's active
-        //
-        if (VpData->MtrrData[i].Enabled != FALSE)
-        {
-            //
-            // Check if this large page falls within the boundary. If a single
-            // physical page (4KB) touches it, we need to override the entire 2MB.
-            //
-            if (((LargePageAddress + (_2MB - 1)) >= VpData->MtrrData[i].PhysicalAddressMin) &&
-                (LargePageAddress <= VpData->MtrrData[i].PhysicalAddressMax))
-            {
-                //
-                // Override candidate type with MTRR type
-                //
-                CandidateMemoryType = VpData->MtrrData[i].Type;
-            }
-        }
-    }
-
-    //
-    // Return the correct type needed
-    //
-    return CandidateMemoryType;
-}
-
-UINT32
-ShvVmxMtrrGetHugePageMemoryType (
-    _In_ PSHV_VP_DATA VpData,
-    _In_ UINT64 HugePageAddress,
-    _In_ UINT32 DefaultMemoryType
-    )
-{
-    UINT32 i;
-    UINT32 memoryType;
-    UINT64 hugePageEnd;
-
-    //
-    // A 1GB EPT entry has a single memory type, so use an MTRR type only if it
-    // covers the whole 1GB. Without any MTRR the default type applies
-    //
-    memoryType = MTRR_TYPE_MAX;
-    hugePageEnd = HugePageAddress + _1GB - 1;
-    for (i = 0; i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0]); i++)
-    {
-        //
-        // Skip disabled ranges, and ranges that don't touch this page
-        //
-        if ((VpData->MtrrData[i].Enabled == FALSE) ||
-            (VpData->MtrrData[i].PhysicalAddressMax < HugePageAddress) ||
-            (VpData->MtrrData[i].PhysicalAddressMin > hugePageEnd))
-        {
-            continue;
-        }
-
-        //
-        // Partial or conflicting ranges mix the types within the page, so
-        // use UC, which is always safe
-        //
-        if ((VpData->MtrrData[i].PhysicalAddressMin > HugePageAddress) ||
-            (VpData->MtrrData[i].PhysicalAddressMax < hugePageEnd) ||
-            ((memoryType != MTRR_TYPE_MAX) &&
-             (memoryType != VpData->MtrrData[i].Type)))
-        {
-            return MTRR_TYPE_UC;
-        }
-        memoryType = VpData->MtrrData[i].Type;
-    }
-
-    //
-    // Return the single MTRR type that covers the page, or the default one
-    //
-    return (memoryType != MTRR_TYPE_MAX) ? memoryType : DefaultMemoryType;
-}
+#include "shvvmx.h"
 
 VOID
 ShvVmxEptInitialize (
@@ -253,9 +82,9 @@ ShvVmxEptInitialize (
         for (j = 0; j < PDE_ENTRY_COUNT; j++)
         {
             VpData->Epde[i][j].PageFrameNumber = (i * 512) + j;
-            VpData->Epde[i][j].Type = ShvVmxMtrrAdjustEffectiveMemoryType(VpData,
-                                                                          VpData->Epde[i][j].PageFrameNumber * _2MB,
-                                                                          MTRR_TYPE_WB);
+            VpData->Epde[i][j].Type = ShvUtilMtrrAdjustEffectiveMemoryType(VpData,
+                                                                           VpData->Epde[i][j].PageFrameNumber * _2MB,
+                                                                           MTRR_TYPE_WB);
         }
     }
 
@@ -320,9 +149,9 @@ ShvVmxEptInitialize (
         {
             VpData->EpdptHuge[i - 1][j].AsUlonglong = tempHugePdpte.AsUlonglong;
             VpData->EpdptHuge[i - 1][j].PageFrameNumber = (i * PDPTE_ENTRY_COUNT) + j;
-            VpData->EpdptHuge[i - 1][j].Type = ShvVmxMtrrGetHugePageMemoryType(VpData,
-                                                                               (UINT64)VpData->EpdptHuge[i - 1][j].PageFrameNumber * _1GB,
-                                                                               defaultMemoryType);
+            VpData->EpdptHuge[i - 1][j].Type = ShvUtilMtrrGetHugePageMemoryType(VpData,
+                                                                                (UINT64)VpData->EpdptHuge[i - 1][j].PageFrameNumber * _1GB,
+                                                                                defaultMemoryType);
         }
     }
 }
@@ -333,43 +162,6 @@ ShvVmxEnterRootModeOnVp (
     )
 {
     PSHV_SPECIAL_REGISTERS Registers = &VpData->SpecialRegisters;
-
-    //
-    // Ensure the the VMCS can fit into a single page
-    //
-    if (((VpData->MsrData[0].QuadPart & VMX_BASIC_VMCS_SIZE_MASK) >> 32) > PAGE_SIZE)
-    {
-        return FALSE;
-    }
-
-    //
-    // Ensure that the VMCS is supported in writeback memory
-    //
-    if (((VpData->MsrData[0].QuadPart & VMX_BASIC_MEMORY_TYPE_MASK) >> 50) != MTRR_TYPE_WB)
-    {
-        return FALSE;
-    }
-
-    //
-    // Ensure that true MSRs can be used for capabilities
-    //
-    if (((VpData->MsrData[0].QuadPart) & VMX_BASIC_DEFAULT1_ZERO) == 0)
-    {
-        return FALSE;
-    }
-
-    //
-    // Ensure that EPT is available with the needed features SimpleVisor uses
-    //
-    if (((VpData->MsrData[12].QuadPart & VMX_EPT_PAGE_WALK_4_BIT) != 0) &&
-        ((VpData->MsrData[12].QuadPart & VMX_EPTP_WB_BIT) != 0) &&
-        ((VpData->MsrData[12].QuadPart & VMX_EPT_2MB_PAGE_BIT) != 0))
-    {
-        //
-        // Enable EPT if these features are supported
-        //
-        VpData->EptControls = SECONDARY_EXEC_ENABLE_EPT | SECONDARY_EXEC_ENABLE_VPID;
-    }
 
     //
     // Capture the revision ID for the VMXON and VMCS region
@@ -692,11 +484,12 @@ ShvVmxSetupVmcsForVp (
 
 UINT8
 ShvVmxProbe (
-    VOID
+    _In_ PSHV_VP_DATA VpData
     )
 {
     INT32 cpu_info[4];
     UINT64 featureControl;
+    UINT32 i;
 
     //
     // Check the VMX feature bit
@@ -729,18 +522,6 @@ ShvVmxProbe (
 
     //
     // Both the hardware and the firmware are allowing us to enter VMX mode.
-    //
-    return TRUE;
-}
-
-INT32
-ShvVmxLaunchOnVp (
-    _In_ PSHV_VP_DATA VpData
-    )
-{
-    UINT32 i;
-
-    //
     // Initialize all the VMX-related MSRs by reading their value
     //
     for (i = 0; i < sizeof(VpData->MsrData) / sizeof(VpData->MsrData[0]); i++)
@@ -749,42 +530,55 @@ ShvVmxLaunchOnVp (
     }
 
     //
-    // Being nested changes how CPUID and the EPT identity map are handled
+    // Ensure the the VMCS can fit into a single page
     //
-    ShvVmxDetectUnderlyingHypervisor(VpData);
-
-    //
-    // Initialize all the MTRR-related MSRs by reading their value and build
-    // range structures to describe their settings
-    //
-    ShvVmxMtrrInitialize(VpData);
-
-    //
-    // Initialize the EPT structures
-    //
-    ShvVmxEptInitialize(VpData);
-
-    //
-    // Attempt to enter VMX root mode on this processor.
-    //
-    if (ShvVmxEnterRootModeOnVp(VpData) == FALSE)
+    if (((VpData->MsrData[0].QuadPart & VMX_BASIC_VMCS_SIZE_MASK) >> 32) > PAGE_SIZE)
     {
-        //
-        // We could not enter VMX Root mode
-        //
-        return SHV_STATUS_NOT_AVAILABLE;
+        return FALSE;
     }
 
     //
-    // Initialize the VMCS, both guest and host state.
+    // Ensure that the VMCS is supported in writeback memory
     //
-    ShvVmxSetupVmcsForVp(VpData);
+    if (((VpData->MsrData[0].QuadPart & VMX_BASIC_MEMORY_TYPE_MASK) >> 50) != MTRR_TYPE_WB)
+    {
+        return FALSE;
+    }
 
     //
-    // Launch the VMCS, based on the guest data that was loaded into the
-    // various VMCS fields by ShvVmxSetupVmcsForVp. This will cause the
-    // processor to jump to ShvVpRestoreAfterLaunch on success, or return
-    // back to the caller on failure.
+    // Ensure that true MSRs can be used for capabilities
     //
-    return ShvVmxLaunch();
+    if (((VpData->MsrData[0].QuadPart) & VMX_BASIC_DEFAULT1_ZERO) == 0)
+    {
+        return FALSE;
+    }
+
+    //
+    // Ensure that EPT is available with the needed features SimpleVisor uses
+    //
+    if (((VpData->MsrData[12].QuadPart & VMX_EPT_PAGE_WALK_4_BIT) != 0) &&
+        ((VpData->MsrData[12].QuadPart & VMX_EPTP_WB_BIT) != 0) &&
+        ((VpData->MsrData[12].QuadPart & VMX_EPT_2MB_PAGE_BIT) != 0))
+    {
+        //
+        // Enable EPT if these features are supported
+        //
+        VpData->EptControls = SECONDARY_EXEC_ENABLE_EPT | SECONDARY_EXEC_ENABLE_VPID;
+    }
+    return TRUE;
 }
+
+//
+// The VT-x backend. ShvVmxLaunch launches the VMCS, and VM-Exits enter at
+// ShvVmxEntry, which is the HOST_RIP that ShvVmxSetupVmcsForVp sets
+//
+const SHV_ARCH ShvVmxArch =
+{
+    ShvVmxProbe,
+    ShvVmxEptInitialize,
+    ShvVmxEnterRootModeOnVp,
+    ShvVmxSetupVmcsForVp,
+    ShvVmxLaunch,
+    ShvVmxHandleExit,
+};
+

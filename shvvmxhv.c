@@ -20,7 +20,7 @@ Environment:
 
 --*/
 
-#include "shv.h"
+#include "shvvmx.h"
 
 DECLSPEC_NORETURN
 VOID
@@ -56,13 +56,18 @@ ShvVmxRead (
 
 INT32
 ShvVmxLaunch (
-    VOID
+    _In_ PSHV_VP_DATA VpData
     )
 {
     INT32 failureCode;
 
+    UNREFERENCED_PARAMETER(VpData);
+
     //
-    // Launch the VMCS
+    // Launch the VMCS, based on the guest data that was loaded into the
+    // various VMCS fields by ShvVmxSetupVmcsForVp. This will cause the
+    // processor to jump to ShvVpRestoreAfterLaunch on success, or return
+    // back to the caller on failure.
     //
     __vmx_vmlaunch();
 
@@ -623,9 +628,9 @@ ShvVmxEntryHandler (
     }
 
     //
-    // Call the generic handler
+    // Call the exit dispatcher of the backend
     //
-    ShvVmxHandleExit(&guestContext);
+    ShvArch->HandleExit(&guestContext);
 
     //
     // Did we hit the magic exit sequence, or should we resume back to the VM

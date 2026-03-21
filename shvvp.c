@@ -109,6 +109,81 @@ ShvCaptureSpecialRegisters (
     _sldt(&SpecialRegisters->Ldtr);
 }
 
+VOID
+ShvVpDetectUnderlyingHypervisor (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    INT32 cpuInfo[4];
+
+    //
+    // SimpleVisor is not running yet, so CPUID reaches the processor or the
+    // hypervisor we are nested under, which sets the Hypervisor Present-bit
+    //
+    __cpuid(cpuInfo, 1);
+    VpData->UnderlyingHypervisor = (cpuInfo[2] & HYPERV_HYPERVISOR_PRESENT_BIT) != 0;
+    if (VpData->UnderlyingHypervisor == FALSE)
+    {
+        return;
+    }
+
+    //
+    // Check for the "VMwareVMware" and "Microsoft Hv" vendor signatures
+    //
+    __cpuid(cpuInfo, HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS);
+    VpData->UnderlyingHypervisorIsVmware = (cpuInfo[1] == 'awMV') &&
+                                           (cpuInfo[2] == 'MVer') &&
+                                           (cpuInfo[3] == 'eraw');
+    VpData->UnderlyingHypervisorIsHyperV = (cpuInfo[1] == 'rciM') &&
+                                           (cpuInfo[2] == 'foso') &&
+                                           (cpuInfo[3] == 'vH t');
+}
+
+INT32
+ShvVpLaunch (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    //
+    // Being nested changes how CPUID and the identity map are handled
+    //
+    ShvVpDetectUnderlyingHypervisor(VpData);
+
+    //
+    // Initialize all the MTRR-related MSRs by reading their value and build
+    // range structures to describe their settings
+    //
+    ShvUtilMtrrInitialize(VpData);
+
+    //
+    // Build the identity map of physical memory
+    //
+    ShvArch->BuildPaging(VpData);
+
+    //
+    // Attempt to enter root mode on this processor.
+    //
+    if (ShvArch->Enable(VpData) == FALSE)
+    {
+        //
+        // We could not enter root mode
+        //
+        return SHV_STATUS_NOT_AVAILABLE;
+    }
+
+    //
+    // Initialize the guest and host state.
+    //
+    ShvArch->Setup(VpData);
+
+    //
+    // Launch the guest. This will cause the processor to jump to
+    // ShvVpRestoreAfterLaunch on success, or return back to the caller on
+    // failure.
+    //
+    return ShvArch->Run(VpData);
+}
+
 DECLSPEC_NORETURN
 VOID
 ShvVpRestoreAfterLaunch (
@@ -190,9 +265,9 @@ ShvVpInitialize (
     {
         //
         // If this processor is not marked as virtualized, we have not launched
-        // the VM yet. Attempt to initialize VMX on this processor.
+        // the VM yet. Attempt to launch it on this processor.
         //
-        status = ShvVmxLaunchOnVp(Data);
+        status = ShvVpLaunch(Data);
     }
 
     //
@@ -298,18 +373,6 @@ ShvVpLoadCallback (
     PSHV_VP_DATA vpData;
     INT32 status;
 
-    vpData = NULL;
-
-    //
-    // Detect if the hardware appears to support VMX root mode to start.
-    // No attempts are made to enable this if it is lacking or disabled.
-    //
-    if (!ShvVmxProbe())
-    {
-        status = SHV_STATUS_NOT_AVAILABLE;
-        goto Failure;
-    }
-
     //
     // Allocate the per-VP data for this logical processor
     //
@@ -317,6 +380,17 @@ ShvVpLoadCallback (
     if (vpData == NULL)
     {
         status = SHV_STATUS_NO_RESOURCES;
+        goto Failure;
+    }
+
+    //
+    // Detect if the hardware appears to support root mode to start, and
+    // capture its capabilities. No attempts are made to enable this if it is
+    // lacking or disabled.
+    //
+    if (!ShvArch->Probe(vpData))
+    {
+        status = SHV_STATUS_NOT_AVAILABLE;
         goto Failure;
     }
 

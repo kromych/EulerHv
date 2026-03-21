@@ -41,6 +41,7 @@
     <ClInclude Include="shv.h" />
     <ClInclude Include="ntint.h" />
     <ClInclude Include="shv_x.h" />
+    <ClInclude Include="shvvmx.h" />
     <ClInclude Include="vmx.h" />
   </ItemGroup>
   <ItemGroup>

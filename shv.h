@@ -53,6 +53,49 @@ typedef struct _SHV_CALLBACK_CONTEXT
     volatile INT64 ExitCounts[SHV_EXIT_REASON_COUNT];
 } SHV_CALLBACK_CONTEXT, *PSHV_CALLBACK_CONTEXT;
 
+//
+// The hardware virtualization backend. ShvVpInitialize calls the routines in
+// the order below, on the logical processor being virtualized
+//
+typedef struct _SHV_ARCH
+{
+    //
+    // Whether this processor and its firmware support the backend. Captures
+    // the capabilities the other routines rely on
+    //
+    UINT8 (*Probe) (_In_ PSHV_VP_DATA VpData);
+
+    //
+    // Build the second level identity map of physical memory
+    //
+    VOID (*BuildPaging) (_In_ PSHV_VP_DATA VpData);
+
+    //
+    // Enter root mode with the guest state structure ready to fill in
+    //
+    UINT8 (*Enable) (_In_ PSHV_VP_DATA VpData);
+
+    //
+    // Fill in the guest and host state from the captured processor state
+    //
+    VOID (*Setup) (_In_ PSHV_VP_DATA VpData);
+
+    //
+    // Launch the guest and run the VM-Exit loop. Returns only on failure,
+    // after leaving root mode. On success the guest resumes in
+    // ShvVpRestoreAfterLaunch
+    //
+    INT32 (*Run) (_In_ PSHV_VP_DATA VpData);
+
+    //
+    // Handle one VM-Exit, called from the VM-Exit loop
+    //
+    VOID (*HandleExit) (_In_ PSHV_VP_STATE VpState);
+} SHV_ARCH, *PSHV_ARCH;
+
+extern const SHV_ARCH ShvVmxArch;
+extern const SHV_ARCH* ShvArch;
+
 SHV_CPU_CALLBACK ShvVpLoadCallback;
 SHV_CPU_CALLBACK ShvVpUnloadCallback;
 
@@ -64,21 +107,6 @@ ShvVpAllocateTracking (
 VOID
 ShvVpFreeTracking (
     VOID
-    );
-
-VOID
-ShvVmxEntry (
-    VOID
-    );
-
-VOID
-ShvVmxHypercall (
-    _Inout_ PCONTEXT Context
-    );
-
-INT32
-ShvVmxLaunchOnVp (
-    _In_ PSHV_VP_DATA VpData
     );
 
 VOID
@@ -94,6 +122,25 @@ ShvUtilAdjustMsr (
     _In_ UINT32 DesiredValue
     );
 
+VOID
+ShvUtilMtrrInitialize (
+    _In_ PSHV_VP_DATA VpData
+    );
+
+UINT32
+ShvUtilMtrrAdjustEffectiveMemoryType (
+    _In_ PSHV_VP_DATA VpData,
+    _In_ UINT64 LargePageAddress,
+    _In_ UINT32 CandidateMemoryType
+    );
+
+UINT32
+ShvUtilMtrrGetHugePageMemoryType (
+    _In_ PSHV_VP_DATA VpData,
+    _In_ UINT64 HugePageAddress,
+    _In_ UINT32 DefaultMemoryType
+    );
+
 PSHV_VP_DATA
 ShvVpAllocateData (
     _In_ UINT32 CpuCount
@@ -103,21 +150,6 @@ VOID
 ShvVpFreeData  (
     _In_ PSHV_VP_DATA Data,
     _In_ UINT32 CpuCount
-    );
-
-INT32
-ShvVmxLaunch (
-    VOID
-    );
-
-UINT8
-ShvVmxProbe (
-    VOID
-    );
-
-VOID
-ShvVmxEptInitialize (
-    _In_ PSHV_VP_DATA VpData
     );
 
 DECLSPEC_NORETURN
