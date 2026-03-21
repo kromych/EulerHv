@@ -51,7 +51,8 @@ ShvUnload (
     ShvVpFreeTracking();
 
     //
-    // Report the VM-Exits per exit reason (EXIT_REASON_* in vmx.h)
+    // Report the VM-Exits per exit reason (EXIT_REASON_* in vmx.h, or
+    // ShvSvmExitIndex for SVM)
     //
     total = 0;
     for (i = 0; i < SHV_EXIT_REASON_COUNT; i++)

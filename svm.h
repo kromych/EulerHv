@@ -173,3 +173,72 @@ static_assert(sizeof(SVM_NPT_PML4E) == sizeof(UINT64), "NPML4E Size Mismatch");
 static_assert(sizeof(SVM_NPT_PDPTE) == sizeof(UINT64), "NPDPTE Size Mismatch");
 static_assert(sizeof(SVM_NPT_HUGE_PDPTE) == sizeof(UINT64), "Huge NPDPTE Size Mismatch");
 static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch");
+
+//
+// SVM exit codes (VMCB offset 0x070). The codes match the intercept bit
+// positions, starting at 0x60 for the miscellaneous intercepts
+//
+#define VMEXIT_CPUID            0x72
+#define VMEXIT_INVD             0x76
+#define VMEXIT_HLT              0x78
+#define VMEXIT_INVLPGA          0x7A
+#define VMEXIT_MSR              0x7C
+#define VMEXIT_VMRUN            0x80
+#define VMEXIT_VMMCALL          0x81
+#define VMEXIT_VMLOAD           0x82
+#define VMEXIT_VMSAVE           0x83
+#define VMEXIT_STGI             0x84
+#define VMEXIT_CLGI             0x85
+#define VMEXIT_SKINIT           0x86
+#define VMEXIT_XSETBV           0x8D
+#define VMEXIT_NPF              0x400
+#define VMEXIT_INVALID          ((UINT64)-1)
+
+//
+// VMCB EVENTINJ field format (offset 0x0A8). Type 3 is a hardware exception.
+// The error code occupies the upper 32 bits when EV is set
+//
+#define SVM_EVENTINJ_TYPE_EXCEPTION     (3 << 8)
+#define SVM_EVENTINJ_DELIVER_ERROR_CODE (1 << 11)
+#define SVM_EVENTINJ_VALID              (1UL << 31)
+
+//
+// The VMCB is a 4KB page split into a control area (0x000-0x3FF) and a state
+// save area (0x400-0xFFF). Only the fields SimpleVisor uses are named
+//
+typedef struct _SVM_VMCB
+{
+    union
+    {
+        struct
+        {
+            UINT8 ControlReserved0[0x070];      // 0x000: intercepts, ASID, etc.
+            UINT64 ExitCode;                    // 0x070
+            UINT64 ExitInfo1;                   // 0x078
+            UINT64 ExitInfo2;                   // 0x080
+            UINT64 ExitIntInfo;                 // 0x088
+            UINT8 ControlReserved1[0x18];       // 0x090: NP_ENABLE, AVIC, GHCB
+            UINT64 EventInj;                    // 0x0A8
+            UINT8 ControlReserved2[0x18];       // 0x0B0: nCR3, LBR, clean bits
+            UINT64 NextRip;                     // 0x0C8
+            UINT8 ControlReserved3[0x330];      // 0x0D0-0x3FF
+
+            UINT8 StateReserved0[0xCB];         // 0x400: segment registers
+            UINT8 Cpl;                          // 0x4CB
+            UINT8 StateReserved1[0x04];         // 0x4CC
+            UINT64 Efer;                        // 0x4D0
+            UINT8 StateReserved2[0x98];         // 0x4D8-0x56F
+            UINT64 Rflags;                      // 0x570
+            UINT64 Rip;                         // 0x578
+            UINT8 StateReserved3[0x58];         // 0x580-0x5D7
+            UINT64 Rsp;                         // 0x5D8
+            UINT8 StateReserved4[0x18];         // 0x5E0-0x5F7
+            UINT64 Rax;                         // 0x5F8
+            UINT8 StateReserved5[0x400];        // 0x600-0x9FF
+            UINT8 AvailableForSoftware[0x600];  // 0xA00-0xFFF
+        };
+        UINT8 Raw[PAGE_SIZE];
+    };
+} SVM_VMCB, *PSVM_VMCB;
+
+static_assert(sizeof(SVM_VMCB) == PAGE_SIZE, "VMCB Size Mismatch");

@@ -119,8 +119,9 @@ ReportExitCounts (
     SetThreadGroupAffinity(GetCurrentThread(), &previous, NULL);
 
     //
-    // One line per exit reason (EXIT_REASON_* in SimpleVisor's vmx.h) that
-    // occurred. The last counter also takes all higher exit reasons.
+    // One line per exit reason (EXIT_REASON_* in SimpleVisor's vmx.h, or
+    // ShvSvmExitIndex for SVM) that occurred. The last counter also takes all
+    // higher exit reasons.
     //
     total = 0;
     for (reason = 0; reason < counters; reason++)

@@ -22,6 +22,11 @@ Environment:
 
 #include "shv.h"
 
+VOID
+ShvSvmHypercall (
+    _Inout_ PCONTEXT Context
+    );
+
 UINT8
 ShvSvmIsAmd (
     VOID
@@ -302,16 +307,35 @@ ShvSvmLaunch (
     return SHV_STATUS_NOT_AVAILABLE;
 }
 
-VOID
-ShvSvmHandleExit (
-    _In_ PSHV_VP_STATE VpState
+UINT32
+FORCEINLINE
+ShvSvmExitIndex (
+    _In_ UINT16 ExitCode
     )
 {
-    UNREFERENCED_PARAMETER(VpState);
-
     //
-    // Unreachable until ShvSvmLaunch runs the guest. Break into the debugger
-    // and stop this processor
+    // The exit codes are sparse. Count 0x72-0x8D and NPF, and let the others
+    // share the last counter
+    //
+    if ((ExitCode >= VMEXIT_CPUID) && (ExitCode <= VMEXIT_XSETBV))
+    {
+        return ExitCode - VMEXIT_CPUID;
+    }
+    if (ExitCode == VMEXIT_NPF)
+    {
+        return VMEXIT_XSETBV - VMEXIT_CPUID + 1;
+    }
+    return SHV_EXIT_REASON_COUNT - 1;
+}
+
+DECLSPEC_NORETURN
+VOID
+ShvSvmHalt (
+    VOID
+    )
+{
+    //
+    // Unrecoverable state. Break into the debugger and stop this processor
     //
     __debugbreak();
     for (;;)
@@ -320,10 +344,377 @@ ShvSvmHandleExit (
     }
 }
 
+DECLSPEC_NORETURN
+VOID
+ShvSvmHandleFatalExit (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSHV_VP_DATA vpData = VpState->VpData;
+    PSVM_VMCB vmcb = &vpData->Vmcb;
+
+    //
+    // An exit SimpleVisor cannot handle, such as a nested page fault outside
+    // the identity map. Save the details for the debugger and halt. For a
+    // nested page fault the GPA is in ExitInfo2
+    //
+    vpData->FatalExitReason = vmcb->ExitCode;
+    vpData->FatalExitQualification = vmcb->ExitInfo1;
+    vpData->FatalGuestPhysicalAddress = vmcb->ExitInfo2;
+    vpData->FatalGuestLinearAddress = 0;
+    vpData->FatalGuestRip = vmcb->Rip;
+
+    ShvOsDebugPrint("SimpleVisor: fatal #VMEXIT on CPU %d, VP data 0x%llX\n",
+                    vpData->ProcessorIndex, (UINT64)vpData);
+    ShvOsDebugPrint("  ExitCode 0x%llX, ExitInfo1 0x%llX, ExitInfo2 0x%llX\n",
+                    vmcb->ExitCode, vmcb->ExitInfo1, vmcb->ExitInfo2);
+    ShvOsDebugPrint("  ExitIntInfo 0x%llX, RIP 0x%llX, RSP 0x%llX, RFLAGS 0x%llX\n",
+                    vmcb->ExitIntInfo, vmcb->Rip, vmcb->Rsp, vmcb->Rflags);
+    ShvOsDebugPrint("  CPL %u, EFER 0x%llX\n",
+                    (UINT32)vmcb->Cpl, vmcb->Efer);
+    ShvSvmHalt();
+}
+
+VOID
+ShvSvmInjectGeneralProtection (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Inject #GP(0). RIP stays at the faulting instruction
+    //
+    VpState->VpData->Vmcb.EventInj = SVM_EVENTINJ_VALID |
+                                     SVM_EVENTINJ_DELIVER_ERROR_CODE |
+                                     SVM_EVENTINJ_TYPE_EXCEPTION |
+                                     INTR_INFO_VECTOR_GP;
+    VpState->SkipRipAdvance = TRUE;
+}
+
+VOID
+ShvSvmInjectInvalidOpcode (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Inject #UD. RIP stays at the faulting instruction
+    //
+    VpState->VpData->Vmcb.EventInj = SVM_EVENTINJ_VALID |
+                                     SVM_EVENTINJ_TYPE_EXCEPTION |
+                                     INTR_INFO_VECTOR_UD;
+    VpState->SkipRipAdvance = TRUE;
+}
+
+VOID
+ShvSvmHandleCpuid (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    INT32 cpu_info[4];
+    UINT32 reason;
+    UINT64 count;
+
+    //
+    // Magic CPUID sequence to unload SimpleVisor, from ring 0
+    //
+    if ((VpState->VpRegs->Rax == 0x41414141) &&
+        (VpState->VpRegs->Rcx == 0x42424242) &&
+        (VpState->VpData->Vmcb.Cpl == DPL_SYSTEM))
+    {
+        VpState->ExitVm = TRUE;
+        return;
+    }
+
+    //
+    // Magic CPUID sequence to detect SimpleVisor
+    //
+    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
+        ((UINT32)VpState->VpRegs->Rcx == 0x44444444))
+    {
+        VpState->VpRegs->Rax = ' vhS';
+        VpState->VpRegs->Rbx = 0;
+        VpState->VpRegs->Rcx = 0;
+        VpState->VpRegs->Rdx = 0;
+        return;
+    }
+
+    //
+    // Magic CPUID sequence to read this processor's #VMEXIT counters, one
+    // ShvSvmExitIndex per call, given in the low 16 bits of ECX
+    //
+    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
+        (((UINT32)VpState->VpRegs->Rcx & 0xFFFF0000) == 0x45450000))
+    {
+        reason = (UINT32)VpState->VpRegs->Rcx & 0xFFFF;
+        count = (reason < SHV_EXIT_REASON_COUNT) ?
+                VpState->VpData->ExitCounts[reason] : 0;
+
+        VpState->VpRegs->Rax = count & 0xFFFFFFFF;
+        VpState->VpRegs->Rbx = count >> 32;
+        VpState->VpRegs->Rcx = SHV_EXIT_REASON_COUNT;
+        VpState->VpRegs->Rdx = 0;
+        return;
+    }
+
+    //
+    // Issue the CPUID to the logical processor
+    //
+    __cpuidex(cpu_info, (INT32)VpState->VpRegs->Rax, (INT32)VpState->VpRegs->Rcx);
+
+    if (VpState->VpRegs->Rax == 1)
+    {
+        //
+        // Set the Hypervisor Present-bit
+        //
+        cpu_info[2] |= HYPERV_HYPERVISOR_PRESENT_BIT;
+    }
+    else if (VpState->VpRegs->Rax == CPUID_EXTENDED_FEATURES)
+    {
+        //
+        // Hide SVM, as the SVM instructions raise #UD in the guest
+        //
+        cpu_info[2] &= ~CPUID_EXTENDED_FEATURES_ECX_SVM;
+    }
+    else if (((UINT32)VpState->VpRegs->Rax == 7) &&
+             ((UINT32)VpState->VpRegs->Rcx == 0) &&
+             (VpState->VpData->UserWaitPauseEnabled == FALSE))
+    {
+        //
+        // Hide WAITPKG (ECX bit 5) without the enable user wait and pause
+        // control, as UMONITOR, UMWAIT and TPAUSE would raise #UD
+        //
+        cpu_info[2] &= ~(1 << 5);
+    }
+    else if ((VpState->VpRegs->Rax == HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS) &&
+             (VpState->VpData->UnderlyingHypervisor == FALSE))
+    {
+        //
+        // Return the SimpleVisor vendor. When nested pass the underlying
+        // hypervisor's through
+        //
+        cpu_info[0] = HYPERV_CPUID_INTERFACE;
+        cpu_info[1] = 'pmiS';
+        cpu_info[2] = 'iVel';
+        cpu_info[3] = 'ros';
+    }
+    else if ((VpState->VpRegs->Rax == HYPERV_CPUID_INTERFACE) &&
+             (VpState->VpData->UnderlyingHypervisor == FALSE))
+    {
+        //
+        // Return the SimpleVisor interface identifier
+        //
+        cpu_info[0] = ' vhS';
+    }
+
+    VpState->VpRegs->Rax = cpu_info[0];
+    VpState->VpRegs->Rbx = cpu_info[1];
+    VpState->VpRegs->Rcx = cpu_info[2];
+    VpState->VpRegs->Rdx = cpu_info[3];
+}
+
+VOID
+ShvSvmHandleInvd (
+    VOID
+    )
+{
+    //
+    // Same as the VT-x handler: WBINVD in place of INVD
+    //
+    __wbinvd();
+}
+
+VOID
+ShvSvmHandleXsetbv (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    INT32 cpu_info[4];
+    UINT64 xcr0;
+    UINT64 supported;
+
+    //
+    // Same validation as the VT-x handler: reject invalid XCR0 values
+    //
+    xcr0 = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
+    __cpuidex(cpu_info, 0xD, 0);
+    supported = (UINT64)(UINT32)cpu_info[3] << 32 | (UINT32)cpu_info[0];
+
+    if (((UINT32)VpState->VpRegs->Rcx != 0) ||
+        ((xcr0 & ~supported) != 0) ||
+        ((xcr0 & XCR0_X87) == 0) ||
+        (((xcr0 & XCR0_AVX) != 0) &&
+         ((xcr0 & XCR0_SSE) == 0)) ||
+        (((xcr0 & XCR0_BNDREG) != 0) !=
+         ((xcr0 & XCR0_BNDCSR) != 0)) ||
+        (((xcr0 & XCR0_AVX512) != 0) &&
+         ((xcr0 & (XCR0_AVX512 | XCR0_AVX | XCR0_SSE)) !=
+          (XCR0_AVX512 | XCR0_AVX | XCR0_SSE))) ||
+        (((xcr0 & XCR0_TILECFG) != 0) !=
+         ((xcr0 & XCR0_TILEDATA) != 0)))
+    {
+        ShvSvmInjectGeneralProtection(VpState);
+        return;
+    }
+
+    _xsetbv((UINT32)VpState->VpRegs->Rcx, xcr0);
+}
+
+VOID
+ShvSvmHandleMsr (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSVM_VMCB vmcb;
+    UINT32 msr;
+    UINT64 value;
+
+    vmcb = &VpState->VpData->Vmcb;
+    msr = (UINT32)VpState->VpRegs->Rcx;
+
+    //
+    // VMRUN needs SVME in the guest EFER. Keep it set, and hide it from the
+    // guest
+    //
+    if (msr == MSR_EFER)
+    {
+        if (vmcb->ExitInfo1 != 0)
+        {
+            value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
+            vmcb->Efer = value | EFER_SVME;
+        }
+        else
+        {
+            value = vmcb->Efer & ~EFER_SVME;
+            VpState->VpRegs->Rax = (UINT32)value;
+            VpState->VpRegs->Rdx = value >> 32;
+        }
+        return;
+    }
+
+    //
+    // VM_HSAVE_PA and VM_CR belong to the hypervisor, not the guest
+    //
+    if ((msr == MSR_VM_HSAVE_PA) || (msr == MSR_VM_CR))
+    {
+        ShvSvmInjectGeneralProtection(VpState);
+        return;
+    }
+
+    //
+    // Under Hyper-V pass its synthetic MSRs through as on VT-x. Others
+    // outside the MSR permission map raise #GP
+    //
+    if ((VpState->VpData->UnderlyingHypervisorIsHyperV != FALSE) &&
+        (msr >= HYPERV_SYNTHETIC_MSR_MIN) &&
+        (msr <= HYPERV_SYNTHETIC_MSR_MAX))
+    {
+        if (vmcb->ExitInfo1 != 0)
+        {
+            value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
+            __writemsr(msr, value);
+        }
+        else
+        {
+            value = __readmsr(msr);
+            VpState->VpRegs->Rax = (UINT32)value;
+            VpState->VpRegs->Rdx = value >> 32;
+        }
+        return;
+    }
+
+    ShvSvmInjectGeneralProtection(VpState);
+}
+
+VOID
+ShvSvmHandleSvmInstruction (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // The guest cannot use SVM
+    //
+    ShvSvmInjectInvalidOpcode(VpState);
+}
+
+VOID
+ShvSvmHandleVmmcall (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Under Hyper-V forward hypercalls to Hyper-V, raising #UD for user mode
+    // as Hyper-V would. Otherwise VMMCALL fails like the SVM instructions
+    //
+    if (VpState->VpData->UnderlyingHypervisorIsHyperV == FALSE)
+    {
+        ShvSvmHandleSvmInstruction(VpState);
+        return;
+    }
+
+    if (VpState->VpData->Vmcb.Cpl != DPL_SYSTEM)
+    {
+        ShvSvmInjectInvalidOpcode(VpState);
+        return;
+    }
+
+    ShvSvmHypercall(VpState->VpRegs);
+}
+
+VOID
+ShvSvmHandleExit (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSVM_VMCB vmcb = &VpState->VpData->Vmcb;
+
+    //
+    // Unlike VT-x, nested Hyper-V does not force HLT, MONITOR and MWAIT
+    // exits, and there is no activity state to fail VM entry on
+    //
+    switch (VpState->ExitReason)
+    {
+    case VMEXIT_CPUID:
+        ShvSvmHandleCpuid(VpState);
+        break;
+    case VMEXIT_INVD:
+        ShvSvmHandleInvd();
+        break;
+    case VMEXIT_XSETBV:
+        ShvSvmHandleXsetbv(VpState);
+        break;
+    case VMEXIT_MSR:
+        ShvSvmHandleMsr(VpState);
+        break;
+    case VMEXIT_VMMCALL:
+        ShvSvmHandleVmmcall(VpState);
+        break;
+    case VMEXIT_VMRUN:
+    case VMEXIT_VMLOAD:
+    case VMEXIT_VMSAVE:
+    case VMEXIT_STGI:
+    case VMEXIT_CLGI:
+    case VMEXIT_SKINIT:
+    case VMEXIT_INVLPGA:
+        ShvSvmHandleSvmInstruction(VpState);
+        break;
+    case VMEXIT_NPF:
+    default:
+        ShvSvmHandleFatalExit(VpState);
+    }
+
+    //
+    // Move the instruction pointer past the exiting instruction, unless the
+    // handler injected a fault
+    //
+    if (VpState->SkipRipAdvance == FALSE)
+    {
+        VpState->GuestRip = vmcb->NextRip;
+        vmcb->Rip = VpState->GuestRip;
+    }
+}
+
 //
-// The SVM backend. The probe, the nested page tables and root mode are
-// implemented, but there is no VMCB, so it fails to launch and leaves SVM
-// disabled again
+// The SVM backend. The probe, the nested page tables, root mode and exit
+// handling are implemented. The VMCB setup and VMRUN loop are next
 //
 const SHV_ARCH ShvSvmArch =
 {

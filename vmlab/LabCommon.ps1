@@ -444,7 +444,8 @@ function Show-LabResult {
 
     #
     # The VM-Exits SimpleVisor handled until shvcheck.exe ran while it was
-    # loaded, per exit reason (EXIT_REASON_* in vmx.h)
+    # loaded, per exit reason (EXIT_REASON_* in vmx.h, or ShvSvmExitIndex
+    # for SVM)
     #
     if ($Result.ContainsKey('loaded.exits.total')) {
         $reasons = $Result.Keys | Where-Object { $_ -match '^loaded\.exits\.(\d+)$' } |
