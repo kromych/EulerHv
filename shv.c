@@ -89,9 +89,9 @@ ShvLoad (
     INT32 status;
 
     //
-    // VT-x is the only backend
+    // AMD and Hygon processors implement SVM, the others VT-x
     //
-    ShvArch = &ShvVmxArch;
+    ShvArch = ShvSvmIsAmd() ? &ShvSvmArch : &ShvVmxArch;
 
     //
     // Track which logical processors SimpleVisor runs on

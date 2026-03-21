@@ -31,6 +31,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ClCompile Include="shv.c" />
+    <ClCompile Include="shvsvm.c" />
     <ClCompile Include="shvutil.c" />
     <ClCompile Include="shvvmx.c" />
     <ClCompile Include="shvvmxhv.c" />
@@ -42,6 +43,7 @@
     <ClInclude Include="ntint.h" />
     <ClInclude Include="shv_x.h" />
     <ClInclude Include="shvvmx.h" />
+    <ClInclude Include="svm.h" />
     <ClInclude Include="vmx.h" />
   </ItemGroup>
   <ItemGroup>

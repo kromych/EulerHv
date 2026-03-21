@@ -24,6 +24,7 @@ Environment:
 #pragma once
 
 #include "vmx.h"
+#include "svm.h"
 
 #define SHV_STATUS_SUCCESS          0
 #define SHV_STATUS_NOT_AVAILABLE    -1
@@ -96,6 +97,13 @@ typedef struct _SHV_VP_DATA
             UINT32 EptControls;
 
             //
+            // The SVM features (CPUID 8000_000A EDX) and number of ASIDs
+            //
+            UINT32 SvmFeatures;
+            UINT32 SvmAsidCount;
+            UINT64 HostSaveAreaPhysicalAddress;
+
+            //
             // The hypervisor SimpleVisor is nested under, if any
             //
             UINT8 UnderlyingHypervisor;
@@ -147,7 +155,14 @@ typedef struct _SHV_VP_DATA
     DECLSPEC_ALIGN(PAGE_SIZE) VMX_LARGE_PDE Epde[PDPTE_ENTRY_COUNT][PDE_ENTRY_COUNT];
     DECLSPEC_ALIGN(PAGE_SIZE) VMX_HUGE_PDPTE EpdptHuge[SHV_EPT_PML4E_COUNT - 1][PDPTE_ENTRY_COUNT];
 
-    DECLSPEC_ALIGN(PAGE_SIZE) VMX_VMCS VmxOn;
+    //
+    // VT-x uses the VMXON region, and SVM the host save area
+    //
+    union
+    {
+        DECLSPEC_ALIGN(PAGE_SIZE) VMX_VMCS VmxOn;
+        DECLSPEC_ALIGN(PAGE_SIZE) UINT8 HostSaveArea[PAGE_SIZE];
+    };
     DECLSPEC_ALIGN(PAGE_SIZE) VMX_VMCS Vmcs;
 } SHV_VP_DATA, *PSHV_VP_DATA;
 

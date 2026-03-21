@@ -94,7 +94,13 @@ typedef struct _SHV_ARCH
 } SHV_ARCH, *PSHV_ARCH;
 
 extern const SHV_ARCH ShvVmxArch;
+extern const SHV_ARCH ShvSvmArch;
 extern const SHV_ARCH* ShvArch;
+
+UINT8
+ShvSvmIsAmd (
+    VOID
+    );
 
 SHV_CPU_CALLBACK ShvVpLoadCallback;
 SHV_CPU_CALLBACK ShvVpUnloadCallback;
