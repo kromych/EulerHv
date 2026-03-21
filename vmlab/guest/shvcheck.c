@@ -1,5 +1,7 @@
 /*++
 
+Copyright (c) Roman Kisel 2026.  All rights reserved.
+
 Module Name:
 
     shvcheck.c
@@ -9,6 +11,10 @@ Abstract:
     This user-mode tool runs inside the lab VM and reports, from the guest's
     point of view, the CPUID state that SimpleVisor affects. It prints one
     "key=value" line per check, which Invoke-ShvTest.ps1 parses.
+
+Author:
+
+    kromych (vdso@mailbox.org) 09-May-2026 - Initial version
 
 Environment:
 
