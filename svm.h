@@ -38,6 +38,7 @@ Environment:
 //
 #define CPUID_EXTENDED_FEATURES                 0x80000001
 #define CPUID_EXTENDED_FEATURES_ECX_SVM         0x00000004
+#define CPUID_EXTENDED_FEATURES_EDX_PAGE_1GB    0x04000000
 #define CPUID_SVM_FEATURES                      0x8000000A
 #define CPUID_SVM_FEATURES_EDX_NP               0x00000001
 #define CPUID_SVM_FEATURES_EDX_NRIPS            0x00000008
@@ -62,3 +63,113 @@ Environment:
 // state to, and #VMEXIT restores it from
 //
 #define MSR_VM_HSAVE_PA                         0xC0010117
+
+//
+// The nested page tables use the AMD64 long mode page table format. Nested
+// walks count as user accesses, so every level needs User set. There are no
+// memory-type fields: PWT, PCD and PAT index the host PAT, and the result is
+// combined with the guest PAT type and the host MTRRs
+//
+typedef struct _SVM_NPT_PML4E
+{
+    union
+    {
+        struct
+        {
+            UINT64 Present : 1;
+            UINT64 Write : 1;
+            UINT64 User : 1;
+            UINT64 WriteThrough : 1;
+            UINT64 CacheDisable : 1;
+            UINT64 Accessed : 1;
+            UINT64 Ignored : 1;
+            UINT64 Reserved : 2;
+            UINT64 SoftwareUse : 3;
+            UINT64 PageFrameNumber : 40;
+            UINT64 SoftwareUseHigh : 11;
+            UINT64 NoExecute : 1;
+        };
+        UINT64 AsUlonglong;
+    };
+} SVM_NPT_PML4E, *PSVM_NPT_PML4E;
+
+typedef struct _SVM_NPT_PDPTE
+{
+    union
+    {
+        struct
+        {
+            UINT64 Present : 1;
+            UINT64 Write : 1;
+            UINT64 User : 1;
+            UINT64 WriteThrough : 1;
+            UINT64 CacheDisable : 1;
+            UINT64 Accessed : 1;
+            UINT64 Ignored : 1;
+            UINT64 Large : 1;
+            UINT64 Ignored2 : 1;
+            UINT64 SoftwareUse : 3;
+            UINT64 PageFrameNumber : 40;
+            UINT64 SoftwareUseHigh : 11;
+            UINT64 NoExecute : 1;
+        };
+        UINT64 AsUlonglong;
+    };
+} SVM_NPT_PDPTE, *PSVM_NPT_PDPTE;
+
+typedef struct _SVM_NPT_HUGE_PDPTE
+{
+    union
+    {
+        struct
+        {
+            UINT64 Present : 1;
+            UINT64 Write : 1;
+            UINT64 User : 1;
+            UINT64 WriteThrough : 1;
+            UINT64 CacheDisable : 1;
+            UINT64 Accessed : 1;
+            UINT64 Dirty : 1;
+            UINT64 Large : 1;
+            UINT64 Global : 1;
+            UINT64 SoftwareUse : 3;
+            UINT64 Pat : 1;
+            UINT64 Reserved : 17;
+            UINT64 PageFrameNumber : 22;
+            UINT64 SoftwareUseHigh : 11;
+            UINT64 NoExecute : 1;
+        };
+        UINT64 AsUlonglong;
+    };
+} SVM_NPT_HUGE_PDPTE, *PSVM_NPT_HUGE_PDPTE;
+
+typedef struct _SVM_NPT_LARGE_PDE
+{
+    union
+    {
+        struct
+        {
+            UINT64 Present : 1;
+            UINT64 Write : 1;
+            UINT64 User : 1;
+            UINT64 WriteThrough : 1;
+            UINT64 CacheDisable : 1;
+            UINT64 Accessed : 1;
+            UINT64 Dirty : 1;
+            UINT64 Large : 1;
+            UINT64 Global : 1;
+            UINT64 SoftwareUse : 3;
+            UINT64 Pat : 1;
+            UINT64 Reserved : 8;
+            UINT64 PageFrameNumber : 31;
+            UINT64 SoftwareUseHigh : 11;
+            UINT64 NoExecute : 1;
+        };
+        UINT64 AsUlonglong;
+    };
+} SVM_NPT_LARGE_PDE, *PSVM_NPT_LARGE_PDE;
+
+static_assert(sizeof(SVM_NPT_PML4E) == sizeof(UINT64), "NPML4E Size Mismatch");
+static_assert(sizeof(SVM_NPT_PDPTE) == sizeof(UINT64), "NPDPTE Size Mismatch");
+static_assert(sizeof(SVM_NPT_HUGE_PDPTE) == sizeof(UINT64), "Huge NPDPTE Size Mismatch");
+static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch");

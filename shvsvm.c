@@ -105,10 +105,136 @@ ShvSvmBuildPaging (
     _In_ PSHV_VP_DATA VpData
     )
 {
+    UINT32 i, j;
+    SVM_NPT_PDPTE tempNpdpte;
+    SVM_NPT_LARGE_PDE tempNpde;
+    SVM_NPT_HUGE_PDPTE tempHugeNpdpte;
+    INT32 cpuInfo[4];
+    UINT32 physicalAddressBits;
+    UINT32 pml4Count;
+
     //
-    // The nested page tables are not built yet, Run fails before VMRUN
+    // Without nested paging the guest uses the physical addresses directly
     //
-    UNREFERENCED_PARAMETER(VpData);
+    VpData->NptPml4PhysicalAddress = 0;
+    if ((VpData->SvmFeatures & CPUID_SVM_FEATURES_EDX_NP) == 0)
+    {
+        return;
+    }
+
+    //
+    // Unlike EPT, the entries have no memory type. Leaving PWT, PCD and PAT
+    // clear selects the host PAT entry 0, which is WB. WB in the nested
+    // tables leaves the guest PAT type in effect, and the processor applies
+    // the host MTRRs on top, so no MTRR scan is needed (APM vol. 2 15.25.8)
+    //
+    // Fill out the NPML4E which covers the first 512GB of RAM
+    //
+    VpData->Npml4[0].Present = 1;
+    VpData->Npml4[0].Write = 1;
+    VpData->Npml4[0].User = 1;
+    VpData->Npml4[0].PageFrameNumber = ShvOsGetPhysicalAddress(&VpData->Npdpt) / PAGE_SIZE;
+
+    //
+    // Fill out a RWX PDPTE. Nested walks count as user accesses
+    //
+    tempNpdpte.AsUlonglong = 0;
+    tempNpdpte.Present = tempNpdpte.Write = tempNpdpte.User = 1;
+
+    //
+    // Construct the nested identity map for every 1GB of RAM
+    //
+    __stosq((UINT64*)VpData->Npdpt, tempNpdpte.AsUlonglong, PDPTE_ENTRY_COUNT);
+    for (i = 0; i < PDPTE_ENTRY_COUNT; i++)
+    {
+        //
+        // Set the page frame number of the PDE table
+        //
+        VpData->Npdpt[i].PageFrameNumber = ShvOsGetPhysicalAddress(&VpData->Npde[i][0]) / PAGE_SIZE;
+    }
+
+    //
+    // Fill out a RWX Large PDE
+    //
+    tempNpde.AsUlonglong = 0;
+    tempNpde.Present = tempNpde.Write = tempNpde.User = 1;
+    tempNpde.Large = 1;
+
+    //
+    // Loop every 1GB of RAM (described by the PDPTE), and identity map every
+    // 2MB of it
+    //
+    __stosq((UINT64*)VpData->Npde, tempNpde.AsUlonglong, PDPTE_ENTRY_COUNT * PDE_ENTRY_COUNT);
+    for (i = 0; i < PDPTE_ENTRY_COUNT; i++)
+    {
+        for (j = 0; j < PDE_ENTRY_COUNT; j++)
+        {
+            VpData->Npde[i][j].PageFrameNumber = (i * PDE_ENTRY_COUNT) + j;
+        }
+    }
+
+    //
+    // Map RAM or MMIO above 512GB with 1GB pages, which nested paging supports
+    // when the processor does. As with EPT, leave the range unmapped under
+    // VMWare. Whether its nested NPT handles 1GB pages is untested
+    //
+    __cpuid(cpuInfo, CPUID_EXTENDED_FEATURES);
+    if (((cpuInfo[3] & CPUID_EXTENDED_FEATURES_EDX_PAGE_1GB) == 0) ||
+        (VpData->UnderlyingHypervisorIsVmware != FALSE))
+    {
+        goto Done;
+    }
+
+    //
+    // Each PML4 entry covers 512GB (39 bits) of the physical address width
+    //
+    __cpuid(cpuInfo, 0x80000000);
+    if ((UINT32)cpuInfo[0] < 0x80000008)
+    {
+        goto Done;
+    }
+    __cpuid(cpuInfo, 0x80000008);
+    physicalAddressBits = cpuInfo[0] & 0xFF;
+    if ((physicalAddressBits <= 39) || (physicalAddressBits > 52))
+    {
+        goto Done;
+    }
+    pml4Count = 1 << (physicalAddressBits - 39);
+    if (pml4Count > SHV_EPT_PML4E_COUNT)
+    {
+        pml4Count = SHV_EPT_PML4E_COUNT;
+    }
+
+    //
+    // Fill out a RWX Huge PDPTE
+    //
+    tempHugeNpdpte.AsUlonglong = 0;
+    tempHugeNpdpte.Present = tempHugeNpdpte.Write = tempHugeNpdpte.User = 1;
+    tempHugeNpdpte.Large = 1;
+
+    //
+    // Loop every additional 512GB, and identity map every 1GB of it
+    //
+    for (i = 1; i < pml4Count; i++)
+    {
+        VpData->Npml4[i].Present = 1;
+        VpData->Npml4[i].Write = 1;
+        VpData->Npml4[i].User = 1;
+        VpData->Npml4[i].PageFrameNumber = ShvOsGetPhysicalAddress(&VpData->NpdptHuge[i - 1]) / PAGE_SIZE;
+
+        for (j = 0; j < PDPTE_ENTRY_COUNT; j++)
+        {
+            VpData->NpdptHuge[i - 1][j].AsUlonglong = tempHugeNpdpte.AsUlonglong;
+            VpData->NpdptHuge[i - 1][j].PageFrameNumber = (i * PDPTE_ENTRY_COUNT) + j;
+        }
+    }
+
+Done:
+    //
+    // There is no EPTP. The VMCB setup enables nested paging and loads this
+    // into nCR3
+    //
+    VpData->NptPml4PhysicalAddress = ShvOsGetPhysicalAddress(&VpData->Npml4);
 }
 
 VOID
@@ -156,7 +282,8 @@ ShvSvmSetupVmcbForVp (
     )
 {
     //
-    // The VMCB is not set up yet, Run fails before VMRUN
+    // The VMCB is not set up yet, Run fails before VMRUN. With a nonzero
+    // NptPml4PhysicalAddress it will set NP_ENABLE and load it into nCR3
     //
     UNREFERENCED_PARAMETER(VpData);
 }
@@ -194,8 +321,9 @@ ShvSvmHandleExit (
 }
 
 //
-// The SVM backend. Only the probe and root mode are implemented, so it fails
-// to launch and leaves SVM disabled again
+// The SVM backend. The probe, the nested page tables and root mode are
+// implemented, but there is no VMCB, so it fails to launch and leaves SVM
+// disabled again
 //
 const SHV_ARCH ShvSvmArch =
 {

@@ -97,11 +97,13 @@ typedef struct _SHV_VP_DATA
             UINT32 EptControls;
 
             //
-            // The SVM features (CPUID 8000_000A EDX) and number of ASIDs
+            // The SVM features (CPUID 8000_000A EDX) and number of ASIDs. The
+            // nested page table root is 0 without nested paging
             //
             UINT32 SvmFeatures;
             UINT32 SvmAsidCount;
             UINT64 HostSaveAreaPhysicalAddress;
+            UINT64 NptPml4PhysicalAddress;
 
             //
             // The hypervisor SimpleVisor is nested under, if any
@@ -150,10 +152,30 @@ typedef struct _SHV_VP_DATA
     };
 
     DECLSPEC_ALIGN(PAGE_SIZE) UINT8 MsrBitmap[PAGE_SIZE];
-    DECLSPEC_ALIGN(PAGE_SIZE) VMX_EPML4E Epml4[PML4E_ENTRY_COUNT];
-    DECLSPEC_ALIGN(PAGE_SIZE) VMX_PDPTE Epdpt[PDPTE_ENTRY_COUNT];
-    DECLSPEC_ALIGN(PAGE_SIZE) VMX_LARGE_PDE Epde[PDPTE_ENTRY_COUNT][PDE_ENTRY_COUNT];
-    DECLSPEC_ALIGN(PAGE_SIZE) VMX_HUGE_PDPTE EpdptHuge[SHV_EPT_PML4E_COUNT - 1][PDPTE_ENTRY_COUNT];
+
+    //
+    // The identity map, as EPT tables for VT-x or nested page tables for SVM
+    //
+    union
+    {
+        DECLSPEC_ALIGN(PAGE_SIZE) VMX_EPML4E Epml4[PML4E_ENTRY_COUNT];
+        DECLSPEC_ALIGN(PAGE_SIZE) SVM_NPT_PML4E Npml4[PML4E_ENTRY_COUNT];
+    };
+    union
+    {
+        DECLSPEC_ALIGN(PAGE_SIZE) VMX_PDPTE Epdpt[PDPTE_ENTRY_COUNT];
+        DECLSPEC_ALIGN(PAGE_SIZE) SVM_NPT_PDPTE Npdpt[PDPTE_ENTRY_COUNT];
+    };
+    union
+    {
+        DECLSPEC_ALIGN(PAGE_SIZE) VMX_LARGE_PDE Epde[PDPTE_ENTRY_COUNT][PDE_ENTRY_COUNT];
+        DECLSPEC_ALIGN(PAGE_SIZE) SVM_NPT_LARGE_PDE Npde[PDPTE_ENTRY_COUNT][PDE_ENTRY_COUNT];
+    };
+    union
+    {
+        DECLSPEC_ALIGN(PAGE_SIZE) VMX_HUGE_PDPTE EpdptHuge[SHV_EPT_PML4E_COUNT - 1][PDPTE_ENTRY_COUNT];
+        DECLSPEC_ALIGN(PAGE_SIZE) SVM_NPT_HUGE_PDPTE NpdptHuge[SHV_EPT_PML4E_COUNT - 1][PDPTE_ENTRY_COUNT];
+    };
 
     //
     // VT-x uses the VMXON region, and SVM the host save area
