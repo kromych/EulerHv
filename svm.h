@@ -65,6 +65,11 @@ Environment:
 #define MSR_VM_HSAVE_PA                         0xC0010117
 
 //
+// VMRUN loads the guest PAT from the VMCB state save area
+//
+#define MSR_PAT                                 0x00000277
+
+//
 // The nested page tables use the AMD64 long mode page table format. Nested
 // walks count as user accesses, so every level needs User set. There are no
 // memory-type fields: PWT, PCD and PAT index the host PAT, and the result is
@@ -316,7 +321,13 @@ typedef struct _SVM_VMCB
             UINT64 Rsp;                         // 0x5D8
             UINT8 StateArea4[0x18];             // 0x5E0
             UINT64 Rax;                         // 0x5F8
-            UINT8 StateArea5[0x400];            // 0x600-0x9FF
+            UINT8 StateArea5[0x40];             // 0x600: STAR, LSTAR, CSTAR,
+                                                //        SFMASK, SYSENTER,
+                                                //        KernelGsBase
+            UINT64 Cr2;                         // 0x640
+            UINT8 StateArea6[0x20];             // 0x648
+            UINT64 Pat;                         // 0x668
+            UINT8 StateArea7[0x390];            // 0x670-0x9FF
             UINT8 AvailableForSoftware[0x600];  // 0xA00-0xFFF
         };
         UINT8 Raw[PAGE_SIZE];

@@ -357,11 +357,10 @@ ShvSvmSetupVmcbForVp (
     ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_VM_HSAVE_PA);
 
     //
-    // Intercept CPUID, INVD, INVLPGA, MSR accesses through the permission
-    // map, XSETBV, and the SVM instructions. VMRUN must always be intercepted
+    // Intercept CPUID, the MSRs in the permission map and the SVM
+    // instructions. VMRUN must always be intercepted
     //
     vmcb->InterceptMisc1 = SVM_INTERCEPT_CPUID |
-                           SVM_INTERCEPT_INVD |
                            SVM_INTERCEPT_INVLPGA |
                            SVM_INTERCEPT_MSR_PROT;
     vmcb->InterceptMisc2 = SVM_INTERCEPT_VMRUN |
@@ -370,8 +369,7 @@ ShvSvmSetupVmcbForVp (
                            SVM_INTERCEPT_VMSAVE |
                            SVM_INTERCEPT_STGI |
                            SVM_INTERCEPT_CLGI |
-                           SVM_INTERCEPT_SKINIT |
-                           SVM_INTERCEPT_XSETBV;
+                           SVM_INTERCEPT_SKINIT;
 
     //
     // Point the MSR permission map at the 8KB region
@@ -393,6 +391,12 @@ ShvSvmSetupVmcbForVp (
         vmcb->NpEnable = 1;
         vmcb->NCr3 = VpData->NptPml4PhysicalAddress;
     }
+
+    //
+    // Capture FS, GS, TR, LDTR and the system call MSRs, which VMLOAD loads
+    // before each VMRUN
+    //
+    __svm_vmsave(ShvOsGetPhysicalAddress(&VpData->Vmcb));
 
     //
     // Load the CS Segment (Ring 0 Code)
@@ -419,32 +423,7 @@ ShvSvmSetupVmcbForVp (
     ShvSvmLoadSegment(&vmcb->Es, &gdtEntry);
 
     //
-    // Load the FS Segment (Ring 3 Compatibility-Mode TEB)
-    //
-    ShvUtilConvertGdtEntry(state->Gdtr.Base, context->SegFs, &gdtEntry);
-    ShvSvmLoadSegment(&vmcb->Fs, &gdtEntry);
-
-    //
-    // Load the GS Segment (MSR-based in Long Mode)
-    //
-    ShvUtilConvertGdtEntry(state->Gdtr.Base, context->SegGs, &gdtEntry);
-    ShvSvmLoadSegment(&vmcb->Gs, &gdtEntry);
-    vmcb->Gs.Base = state->MsrGsBase;
-
-    //
-    // Load the Task Register (Ring 0 TSS)
-    //
-    ShvUtilConvertGdtEntry(state->Gdtr.Base, state->Tr, &gdtEntry);
-    ShvSvmLoadSegment(&vmcb->Tr, &gdtEntry);
-
-    //
-    // Load the Local Descriptor Table
-    //
-    ShvUtilConvertGdtEntry(state->Gdtr.Base, state->Ldtr, &gdtEntry);
-    ShvSvmLoadSegment(&vmcb->Ldtr, &gdtEntry);
-
-    //
-    // Load the GDT and IDT. The selector and attrib fields are reserved
+    // Load the GDT and IDT
     //
     vmcb->Gdtr.Base = (UINT64)state->Gdtr.Base;
     vmcb->Gdtr.Limit = state->Gdtr.Limit;
@@ -452,12 +431,16 @@ ShvSvmSetupVmcbForVp (
     vmcb->Idtr.Limit = state->Idtr.Limit;
 
     //
-    // Load control registers and EFER, which needs SVME for VMRUN
+    // Load control registers, CR2, PAT and the CPL, and EFER, which needs
+    // SVME for VMRUN
     //
     vmcb->Cr0 = state->Cr0;
     vmcb->Cr3 = state->Cr3;
     vmcb->Cr4 = state->Cr4;
+    vmcb->Cr2 = __readcr2();
     vmcb->Efer = __readmsr(MSR_EFER) | EFER_SVME;
+    vmcb->Pat = __readmsr(MSR_PAT);
+    vmcb->Cpl = 0;
 
     //
     // Load debug registers
@@ -476,6 +459,11 @@ ShvSvmSetupVmcbForVp (
     vmcb->Rip = (UINT64)ShvVpRestoreAfterLaunch;
     vmcb->Rflags = context->EFlags & ~EFLAGS_INTERRUPT_FLAG;
     vmcb->Rax = context->Rax;
+
+    //
+    // SVM does not intercept UMONITOR, UMWAIT and TPAUSE, so keep WAITPKG
+    //
+    VpData->UserWaitPauseEnabled = TRUE;
 
     //
     // Load every VMCB field on the first VMRUN
@@ -702,53 +690,6 @@ ShvSvmHandleCpuid (
 }
 
 VOID
-ShvSvmHandleInvd (
-    VOID
-    )
-{
-    //
-    // Same as the VT-x handler: WBINVD in place of INVD
-    //
-    __wbinvd();
-}
-
-VOID
-ShvSvmHandleXsetbv (
-    _In_ PSHV_VP_STATE VpState
-    )
-{
-    INT32 cpu_info[4];
-    UINT64 xcr0;
-    UINT64 supported;
-
-    //
-    // Same validation as the VT-x handler: reject invalid XCR0 values
-    //
-    xcr0 = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
-    __cpuidex(cpu_info, 0xD, 0);
-    supported = (UINT64)(UINT32)cpu_info[3] << 32 | (UINT32)cpu_info[0];
-
-    if (((UINT32)VpState->VpRegs->Rcx != 0) ||
-        ((xcr0 & ~supported) != 0) ||
-        ((xcr0 & XCR0_X87) == 0) ||
-        (((xcr0 & XCR0_AVX) != 0) &&
-         ((xcr0 & XCR0_SSE) == 0)) ||
-        (((xcr0 & XCR0_BNDREG) != 0) !=
-         ((xcr0 & XCR0_BNDCSR) != 0)) ||
-        (((xcr0 & XCR0_AVX512) != 0) &&
-         ((xcr0 & (XCR0_AVX512 | XCR0_AVX | XCR0_SSE)) !=
-          (XCR0_AVX512 | XCR0_AVX | XCR0_SSE))) ||
-        (((xcr0 & XCR0_TILECFG) != 0) !=
-         ((xcr0 & XCR0_TILEDATA) != 0)))
-    {
-        ShvSvmInjectGeneralProtection(VpState);
-        return;
-    }
-
-    _xsetbv((UINT32)VpState->VpRegs->Rcx, xcr0);
-}
-
-VOID
 ShvSvmHandleMsr (
     _In_ PSHV_VP_STATE VpState
     )
@@ -865,12 +806,6 @@ ShvSvmHandleExit (
     {
     case VMEXIT_CPUID:
         ShvSvmHandleCpuid(VpState);
-        break;
-    case VMEXIT_INVD:
-        ShvSvmHandleInvd();
-        break;
-    case VMEXIT_XSETBV:
-        ShvSvmHandleXsetbv(VpState);
         break;
     case VMEXIT_MSR:
         ShvSvmHandleMsr(VpState);
