@@ -276,9 +276,67 @@ ShvSvmEnterRootModeOnVp (
     // bits. Enable the SVM instructions, and give VMRUN the 4KB host save area
     //
     VpData->HostSaveAreaPhysicalAddress = ShvOsGetPhysicalAddress(VpData->HostSaveArea);
+    VpData->MsrBitmapPhysicalAddress = ShvOsGetPhysicalAddress(VpData->MsrBitmap);
     __writemsr(MSR_EFER, efer | EFER_SVME);
     __writemsr(MSR_VM_HSAVE_PA, VpData->HostSaveAreaPhysicalAddress);
     return TRUE;
+}
+
+static
+VOID
+ShvSvmSetMsrPermission (
+    _Inout_ UINT8* MsrBitmap,
+    _In_ UINT32 Msr
+    )
+{
+    UINT32 offset;
+    UINT32 bitPos;
+
+    //
+    // The MSR permission map has three 2KB sections for MSRs 0x0000-0x1FFF,
+    // 0xC000_0000-0xC000_1FFF and 0xC001_0000-0xC001_1FFF. Each MSR occupies
+    // two bits: bit 0 is the read intercept and bit 1 is the write intercept
+    //
+    if (Msr <= 0x1FFF)
+    {
+        offset = 0;
+    }
+    else if ((Msr >= 0xC0000000) && (Msr <= 0xC0001FFF))
+    {
+        offset = 0x800;
+        Msr -= 0xC0000000;
+    }
+    else if ((Msr >= 0xC0010000) && (Msr <= 0xC0011FFF))
+    {
+        offset = 0x1000;
+        Msr -= 0xC0010000;
+    }
+    else
+    {
+        return;
+    }
+
+    bitPos = Msr * 2;
+    offset += bitPos / 8;
+    bitPos %= 8;
+    MsrBitmap[offset] |= (UINT8)((1 << bitPos) | (1 << (bitPos + 1)));
+}
+
+static
+VOID
+ShvSvmLoadSegment (
+    _Out_ PSVM_VMCB_SEGMENT VmcbSeg,
+    _In_ PVMX_GDTENTRY64 GdtEntry
+    )
+{
+    //
+    // Move AVL, L, D/B and G from bits 12-15 down to bits 8-11
+    //
+    VmcbSeg->Selector = GdtEntry->Selector;
+    VmcbSeg->Attrib = (UINT16)((GdtEntry->AccessRights & 0xFF) |
+                                ((GdtEntry->AccessRights >> 4) & 0xF00));
+    VmcbSeg->Limit = GdtEntry->Limit;
+    VmcbSeg->Base = GdtEntry->Base;
 }
 
 VOID
@@ -286,11 +344,143 @@ ShvSvmSetupVmcbForVp (
     _In_ PSHV_VP_DATA VpData
     )
 {
+    PSHV_SPECIAL_REGISTERS state = &VpData->SpecialRegisters;
+    PCONTEXT context = &VpData->ContextFrame;
+    PSVM_VMCB vmcb = &VpData->Vmcb;
+    VMX_GDTENTRY64 gdtEntry;
+
     //
-    // The VMCB is not set up yet, Run fails before VMRUN. With a nonzero
-    // NptPml4PhysicalAddress it will set NP_ENABLE and load it into nCR3
+    // Intercept EFER, VM_CR and VM_HSAVE_PA, and pass the other MSRs through
     //
-    UNREFERENCED_PARAMETER(VpData);
+    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_EFER);
+    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_VM_CR);
+    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_VM_HSAVE_PA);
+
+    //
+    // Intercept CPUID, INVD, INVLPGA, MSR accesses through the permission
+    // map, XSETBV, and the SVM instructions. VMRUN must always be intercepted
+    //
+    vmcb->InterceptMisc1 = SVM_INTERCEPT_CPUID |
+                           SVM_INTERCEPT_INVD |
+                           SVM_INTERCEPT_INVLPGA |
+                           SVM_INTERCEPT_MSR_PROT;
+    vmcb->InterceptMisc2 = SVM_INTERCEPT_VMRUN |
+                           SVM_INTERCEPT_VMMCALL |
+                           SVM_INTERCEPT_VMLOAD |
+                           SVM_INTERCEPT_VMSAVE |
+                           SVM_INTERCEPT_STGI |
+                           SVM_INTERCEPT_CLGI |
+                           SVM_INTERCEPT_SKINIT |
+                           SVM_INTERCEPT_XSETBV;
+
+    //
+    // Point the MSR permission map at the 8KB region
+    //
+    vmcb->MsrpmBasePa = VpData->MsrBitmapPhysicalAddress;
+
+    //
+    // ASID 0 belongs to the host. Flush the TLB on the first VMRUN
+    //
+    vmcb->GuestAsid = 1;
+    vmcb->TlbControl = SVM_TLB_CONTROL_FLUSH_ALL;
+
+    //
+    // Enable nested paging and load the nested page table root, if the
+    // processor supports it
+    //
+    if (VpData->NptPml4PhysicalAddress != 0)
+    {
+        vmcb->NpEnable = 1;
+        vmcb->NCr3 = VpData->NptPml4PhysicalAddress;
+    }
+
+    //
+    // Load the CS Segment (Ring 0 Code)
+    //
+    ShvUtilConvertGdtEntry(state->Gdtr.Base, context->SegCs, &gdtEntry);
+    ShvSvmLoadSegment(&vmcb->Cs, &gdtEntry);
+
+    //
+    // Load the SS Segment (Ring 0 Data)
+    //
+    ShvUtilConvertGdtEntry(state->Gdtr.Base, context->SegSs, &gdtEntry);
+    ShvSvmLoadSegment(&vmcb->Ss, &gdtEntry);
+
+    //
+    // Load the DS Segment (Ring 3 Data)
+    //
+    ShvUtilConvertGdtEntry(state->Gdtr.Base, context->SegDs, &gdtEntry);
+    ShvSvmLoadSegment(&vmcb->Ds, &gdtEntry);
+
+    //
+    // Load the ES Segment (Ring 3 Data)
+    //
+    ShvUtilConvertGdtEntry(state->Gdtr.Base, context->SegEs, &gdtEntry);
+    ShvSvmLoadSegment(&vmcb->Es, &gdtEntry);
+
+    //
+    // Load the FS Segment (Ring 3 Compatibility-Mode TEB)
+    //
+    ShvUtilConvertGdtEntry(state->Gdtr.Base, context->SegFs, &gdtEntry);
+    ShvSvmLoadSegment(&vmcb->Fs, &gdtEntry);
+
+    //
+    // Load the GS Segment (MSR-based in Long Mode)
+    //
+    ShvUtilConvertGdtEntry(state->Gdtr.Base, context->SegGs, &gdtEntry);
+    ShvSvmLoadSegment(&vmcb->Gs, &gdtEntry);
+    vmcb->Gs.Base = state->MsrGsBase;
+
+    //
+    // Load the Task Register (Ring 0 TSS)
+    //
+    ShvUtilConvertGdtEntry(state->Gdtr.Base, state->Tr, &gdtEntry);
+    ShvSvmLoadSegment(&vmcb->Tr, &gdtEntry);
+
+    //
+    // Load the Local Descriptor Table
+    //
+    ShvUtilConvertGdtEntry(state->Gdtr.Base, state->Ldtr, &gdtEntry);
+    ShvSvmLoadSegment(&vmcb->Ldtr, &gdtEntry);
+
+    //
+    // Load the GDT and IDT. The selector and attrib fields are reserved
+    //
+    vmcb->Gdtr.Base = (UINT64)state->Gdtr.Base;
+    vmcb->Gdtr.Limit = state->Gdtr.Limit;
+    vmcb->Idtr.Base = (UINT64)state->Idtr.Base;
+    vmcb->Idtr.Limit = state->Idtr.Limit;
+
+    //
+    // Load control registers and EFER, which needs SVME for VMRUN
+    //
+    vmcb->Cr0 = state->Cr0;
+    vmcb->Cr3 = state->Cr3;
+    vmcb->Cr4 = state->Cr4;
+    vmcb->Efer = __readmsr(MSR_EFER) | EFER_SVME;
+
+    //
+    // Load debug registers
+    //
+    vmcb->Dr7 = state->KernelDr7;
+    vmcb->Dr6 = __readdr(6);
+
+    //
+    // Load the guest stack, instruction pointer and rflags, matching the VT-x
+    // VMCS setup. The guest resumes at ShvVpRestoreAfterLaunch with interrupts
+    // off. The 8 byte bias stands in for a return address, which keeps RSP
+    // ABI-aligned on entry
+    //
+    vmcb->Rsp = (UINT64)VpData->ShvStackLimit + KERNEL_STACK_SIZE -
+                sizeof(CONTEXT) - sizeof(UINT64);
+    vmcb->Rip = (UINT64)ShvVpRestoreAfterLaunch;
+    vmcb->Rflags = context->EFlags & ~EFLAGS_INTERRUPT_FLAG;
+    vmcb->Rax = context->Rax;
+
+    //
+    // Load every VMCB field on the first VMRUN
+    //
+    vmcb->VmcbCleanBits = 0;
 }
 
 INT32
@@ -580,6 +770,7 @@ ShvSvmHandleMsr (
         {
             value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
             vmcb->Efer = value | EFER_SVME;
+            vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_CRX;
         }
         else
         {
@@ -713,8 +904,8 @@ ShvSvmHandleExit (
 }
 
 //
-// The SVM backend. The probe, the nested page tables, root mode and exit
-// handling are implemented. The VMCB setup and VMRUN loop are next
+// The SVM backend. The probe, the nested page tables, root mode, VMCB setup
+// and exit handling are implemented. The VMRUN loop is next
 //
 const SHV_ARCH ShvSvmArch =
 {

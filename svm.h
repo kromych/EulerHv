@@ -175,6 +175,46 @@ static_assert(sizeof(SVM_NPT_HUGE_PDPTE) == sizeof(UINT64), "Huge NPDPTE Size Mi
 static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch");
 
 //
+// Intercept word 1 (VMCB offset 0x00C) and word 2 (VMCB offset 0x010)
+//
+#define SVM_INTERCEPT_CPUID                     (1UL << 18)
+#define SVM_INTERCEPT_INVD                      (1UL << 22)
+#define SVM_INTERCEPT_INVLPGA                   (1UL << 26)
+#define SVM_INTERCEPT_MSR_PROT                  (1UL << 28)
+
+#define SVM_INTERCEPT_VMRUN                     (1UL << 0)
+#define SVM_INTERCEPT_VMMCALL                   (1UL << 1)
+#define SVM_INTERCEPT_VMLOAD                    (1UL << 2)
+#define SVM_INTERCEPT_VMSAVE                    (1UL << 3)
+#define SVM_INTERCEPT_STGI                      (1UL << 4)
+#define SVM_INTERCEPT_CLGI                      (1UL << 5)
+#define SVM_INTERCEPT_SKINIT                    (1UL << 6)
+#define SVM_INTERCEPT_XSETBV                    (1UL << 13)
+
+//
+// TLB_CONTROL (VMCB offset 0x05C). Value 1 flushes the entire TLB on VMRUN,
+// which is needed for the first entry with a new ASID
+//
+#define SVM_TLB_CONTROL_FLUSH_ALL               1
+
+//
+// VMCB clean bits (VMCB offset 0x0C0). A clear bit makes VMRUN reload the
+// fields of its group
+//
+#define SVM_VMCB_CLEAN_I                        (1UL << 0)
+#define SVM_VMCB_CLEAN_IOPM                     (1UL << 1)
+#define SVM_VMCB_CLEAN_ASID                     (1UL << 2)
+#define SVM_VMCB_CLEAN_TPR                      (1UL << 3)
+#define SVM_VMCB_CLEAN_NP                       (1UL << 4)
+#define SVM_VMCB_CLEAN_CRX                      (1UL << 5)
+#define SVM_VMCB_CLEAN_DRX                      (1UL << 6)
+#define SVM_VMCB_CLEAN_DT                       (1UL << 7)
+#define SVM_VMCB_CLEAN_SEG                      (1UL << 8)
+#define SVM_VMCB_CLEAN_CR2                      (1UL << 9)
+#define SVM_VMCB_CLEAN_LBR                      (1UL << 10)
+#define SVM_VMCB_CLEAN_AVIC                     (1UL << 11)
+
+//
 // SVM exit codes (VMCB offset 0x070). The codes match the intercept bit
 // positions, starting at 0x60 for the miscellaneous intercepts
 //
@@ -203,6 +243,20 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 #define SVM_EVENTINJ_VALID              (1UL << 31)
 
 //
+// VMCB segment register format. Unlike the VMX access rights, the attributes
+// have AVL, L, D/B and G at bits 8-11
+//
+typedef struct _SVM_VMCB_SEGMENT
+{
+    UINT16 Selector;
+    UINT16 Attrib;
+    UINT32 Limit;
+    UINT64 Base;
+} SVM_VMCB_SEGMENT, *PSVM_VMCB_SEGMENT;
+
+static_assert(sizeof(SVM_VMCB_SEGMENT) == 16, "VMCB Segment Size Mismatch");
+
+//
 // The VMCB is a 4KB page split into a control area (0x000-0x3FF) and a state
 // save area (0x400-0xFFF). Only the fields SimpleVisor uses are named
 //
@@ -212,29 +266,57 @@ typedef struct _SVM_VMCB
     {
         struct
         {
-            UINT8 ControlReserved0[0x070];      // 0x000: intercepts, ASID, etc.
+            UINT8 ControlArea0[0x0C];           // 0x000: CR/DR intercepts,
+                                                //        exception bitmap
+            UINT32 InterceptMisc1;              // 0x00C
+            UINT32 InterceptMisc2;              // 0x010
+            UINT8 ControlArea1[0x34];           // 0x014
+            UINT64 MsrpmBasePa;                 // 0x048
+            UINT8 ControlArea2[0x08];           // 0x050: TSC offset
+            UINT32 GuestAsid;                   // 0x058
+            UINT32 TlbControl;                  // 0x05C
+            UINT8 ControlArea3[0x10];           // 0x060: virtual interrupt
             UINT64 ExitCode;                    // 0x070
             UINT64 ExitInfo1;                   // 0x078
             UINT64 ExitInfo2;                   // 0x080
             UINT64 ExitIntInfo;                 // 0x088
-            UINT8 ControlReserved1[0x18];       // 0x090: NP_ENABLE, AVIC, GHCB
+            UINT64 NpEnable;                    // 0x090
+            UINT8 ControlArea4[0x10];           // 0x098: AVIC, GHCB
             UINT64 EventInj;                    // 0x0A8
-            UINT8 ControlReserved2[0x18];       // 0x0B0: nCR3, LBR, clean bits
+            UINT64 NCr3;                        // 0x0B0
+            UINT8 ControlArea5[0x08];           // 0x0B8: LBR
+            UINT32 VmcbCleanBits;               // 0x0C0
+            UINT32 ControlArea6;                // 0x0C4
             UINT64 NextRip;                     // 0x0C8
-            UINT8 ControlReserved3[0x330];      // 0x0D0-0x3FF
+            UINT8 ControlArea7[0x330];          // 0x0D0-0x3FF
 
-            UINT8 StateReserved0[0xCB];         // 0x400: segment registers
+            SVM_VMCB_SEGMENT Es;                // 0x400
+            SVM_VMCB_SEGMENT Cs;                // 0x410
+            SVM_VMCB_SEGMENT Ss;                // 0x420
+            SVM_VMCB_SEGMENT Ds;                // 0x430
+            SVM_VMCB_SEGMENT Fs;                // 0x440
+            SVM_VMCB_SEGMENT Gs;                // 0x450
+            SVM_VMCB_SEGMENT Gdtr;              // 0x460
+            SVM_VMCB_SEGMENT Ldtr;              // 0x470
+            SVM_VMCB_SEGMENT Idtr;              // 0x480
+            SVM_VMCB_SEGMENT Tr;                // 0x490
+            UINT8 StateArea0[0x2B];             // 0x4A0
             UINT8 Cpl;                          // 0x4CB
-            UINT8 StateReserved1[0x04];         // 0x4CC
+            UINT8 StateArea1_[0x04];            // 0x4CC
             UINT64 Efer;                        // 0x4D0
-            UINT8 StateReserved2[0x98];         // 0x4D8-0x56F
+            UINT8 StateArea2[0x70];             // 0x4D8
+            UINT64 Cr4;                         // 0x548
+            UINT64 Cr3;                         // 0x550
+            UINT64 Cr0;                         // 0x558
+            UINT64 Dr7;                         // 0x560
+            UINT64 Dr6;                         // 0x568
             UINT64 Rflags;                      // 0x570
             UINT64 Rip;                         // 0x578
-            UINT8 StateReserved3[0x58];         // 0x580-0x5D7
+            UINT8 StateArea3[0x58];             // 0x580
             UINT64 Rsp;                         // 0x5D8
-            UINT8 StateReserved4[0x18];         // 0x5E0-0x5F7
+            UINT8 StateArea4[0x18];             // 0x5E0
             UINT64 Rax;                         // 0x5F8
-            UINT8 StateReserved5[0x400];        // 0x600-0x9FF
+            UINT8 StateArea5[0x400];            // 0x600-0x9FF
             UINT8 AvailableForSoftware[0x600];  // 0xA00-0xFFF
         };
         UINT8 Raw[PAGE_SIZE];

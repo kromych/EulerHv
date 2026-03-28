@@ -151,7 +151,7 @@ typedef struct _SHV_VP_DATA
         };
     };
 
-    DECLSPEC_ALIGN(PAGE_SIZE) UINT8 MsrBitmap[PAGE_SIZE];
+    DECLSPEC_ALIGN(PAGE_SIZE) UINT8 MsrBitmap[2 * PAGE_SIZE];
 
     //
     // The identity map, as EPT tables for VT-x or nested page tables for SVM
@@ -192,7 +192,7 @@ typedef struct _SHV_VP_DATA
     };
 } SHV_VP_DATA, *PSHV_VP_DATA;
 
-C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 5 + SHV_EPT_PML4E_COUNT - 1) * PAGE_SIZE));
+C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 6 + SHV_EPT_PML4E_COUNT - 1) * PAGE_SIZE));
 
 VOID
 _sldt (
