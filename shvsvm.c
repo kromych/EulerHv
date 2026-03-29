@@ -540,12 +540,6 @@ ShvSvmEntryHandler (
     UINT32 index;
 
     //
-    // Because we had to use RCX when calling ShvOsCaptureContext, its value
-    // was pushed on the stack right before the call
-    //
-    Context->Rcx = *(UINT64*)((uintptr_t)Context - sizeof(Context->Rcx));
-
-    //
     // The host frame sits at the top of the hypervisor stack, and the VP data
     // at its bottom. A clobbered canary means the stack overflowed into it
     //

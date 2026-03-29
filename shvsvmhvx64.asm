@@ -45,6 +45,10 @@
     lea     rcx, [rsp+8h]       ; store the context at the original RSP
     call    ShvOsCaptureContext ; save the guest GPRs and XMM state, as
                                 ; ShvVmxEntry does
+    pop     rax                 ; return the spilled RCX in the context
+    mov     [rcx+80h], rax
+    push    0                   ; a null return address, which ends stack
+                                ; walks at the handler, as nothing called it
     jmp     ShvSvmEntryHandler  ; jump to the C code handler, with RSP aligned
                                 ; as after a call
     ShvSvmVmrun ENDP
