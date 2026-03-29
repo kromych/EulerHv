@@ -449,15 +449,12 @@ ShvSvmSetupVmcbForVp (
     vmcb->Dr6 = __readdr(6);
 
     //
-    // Load the guest stack, instruction pointer and rflags, matching the VT-x
-    // VMCS setup. The guest resumes at ShvVpRestoreAfterLaunch with interrupts
-    // off. The 8 byte bias stands in for a return address, which keeps RSP
-    // ABI-aligned on entry
+    // Load the guest stack, instruction pointer and rflags. The guest resumes
+    // where the context was captured
     //
-    vmcb->Rsp = (UINT64)VpData->ShvStackLimit + KERNEL_STACK_SIZE -
-                sizeof(CONTEXT) - sizeof(UINT64);
-    vmcb->Rip = (UINT64)ShvVpRestoreAfterLaunch;
-    vmcb->Rflags = context->EFlags & ~EFLAGS_INTERRUPT_FLAG;
+    vmcb->Rsp = context->Rsp;
+    vmcb->Rip = context->Rip;
+    vmcb->Rflags = context->EFlags;
     vmcb->Rax = context->Rax;
 
     //
@@ -469,20 +466,6 @@ ShvSvmSetupVmcbForVp (
     // Load every VMCB field on the first VMRUN
     //
     vmcb->VmcbCleanBits = 0;
-}
-
-INT32
-ShvSvmLaunch (
-    _In_ PSHV_VP_DATA VpData
-    )
-{
-    UNREFERENCED_PARAMETER(VpData);
-
-    //
-    // There is no VMRUN loop yet. Leave root mode, as a failed VMLAUNCH does
-    //
-    ShvSvmLeaveRootMode();
-    return SHV_STATUS_NOT_AVAILABLE;
 }
 
 UINT32
@@ -520,6 +503,118 @@ ShvSvmHalt (
     {
         __halt();
     }
+}
+
+UINT8
+ShvSvmEntryHandler (
+    _In_ PCONTEXT Context,
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    SHV_VP_STATE guestContext;
+    PSVM_VMCB vmcb = &VpData->Vmcb;
+    UINT32 index;
+    UINT64 vmcbPa;
+
+    //
+    // A clobbered canary means the stack overflowed into the VP data
+    //
+    if (VpData->StackCanary != SHV_STACK_CANARY)
+    {
+        ShvSvmHalt();
+    }
+
+    //
+    // Build the VP state. The guest RAX is in the VMCB
+    //
+    Context->Rax = vmcb->Rax;
+    guestContext.GuestEFlags = vmcb->Rflags;
+    guestContext.GuestRip = vmcb->Rip;
+    guestContext.GuestRsp = vmcb->Rsp;
+    guestContext.ExitReason = (UINT16)vmcb->ExitCode;
+    guestContext.VpRegs = Context;
+    guestContext.VpData = VpData;
+    guestContext.ExitVm = FALSE;
+    guestContext.SkipRipAdvance = FALSE;
+
+    //
+    // VMRUN rejected the VMCB, return to ShvSvmLaunch
+    //
+    if (vmcb->ExitCode == VMEXIT_INVALID)
+    {
+        return 1;
+    }
+
+    //
+    // Count the exit
+    //
+    index = ShvSvmExitIndex(guestContext.ExitReason);
+    VpData->ExitCounts[index]++;
+
+    //
+    // Dispatch the exit
+    //
+    ShvArch->HandleExit(&guestContext);
+
+    //
+    // Sync RAX back to the VMCB for the next VMRUN
+    //
+    vmcb->Rax = Context->Rax;
+
+    //
+    // On unload leave SVM and return to the guest. #VMEXIT cleared the GIF,
+    // so set it again
+    //
+    if (guestContext.ExitVm != FALSE)
+    {
+        Context->Rax = (uintptr_t)VpData >> 32;
+        Context->Rbx = (uintptr_t)VpData & 0xFFFFFFFF;
+        Context->Rcx = 0x43434343;
+
+        ShvOsUnprepareProcessor(VpData);
+
+        vmcbPa = ShvOsGetPhysicalAddress(&VpData->Vmcb);
+        __svm_vmload(vmcbPa);
+        __writecr3(vmcb->Cr3);
+        __svm_stgi();
+        ShvSvmLeaveRootMode();
+
+        Context->Rsp = guestContext.GuestRsp;
+        Context->Rip = (UINT64)guestContext.GuestRip;
+        Context->EFlags = (UINT32)guestContext.GuestEFlags;
+        ShvOsRestoreContext(Context);
+    }
+
+    return 0;
+}
+
+INT32
+ShvSvmLaunch (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    UINT64 vmcbPa;
+
+    vmcbPa = ShvOsGetPhysicalAddress(&VpData->Vmcb);
+
+    //
+    // The guest resumes in ShvVpInitialize, which checks that this processor
+    // is virtualized
+    //
+    __writecr3(VpData->SystemDirectoryTableBase);
+    ShvVpMarkVirtualized(VpData->ProcessorIndex);
+
+    //
+    // Run the guest. This only returns if VMRUN fails
+    //
+    ShvSvmRun(VpData, vmcbPa, &VpData->ContextFrame);
+
+    //
+    // Undo the mark and leave root mode
+    //
+    ShvVpUnmarkVirtualized(VpData->ProcessorIndex);
+    ShvSvmLeaveRootMode();
+    return SHV_STATUS_NOT_AVAILABLE;
 }
 
 DECLSPEC_NORETURN
@@ -839,8 +934,7 @@ ShvSvmHandleExit (
 }
 
 //
-// The SVM backend. The probe, the nested page tables, root mode, VMCB setup
-// and exit handling are implemented. The VMRUN loop is next
+// The SVM backend
 //
 const SHV_ARCH ShvSvmArch =
 {

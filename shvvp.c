@@ -86,6 +86,22 @@ ShvIsOurHypervisorPresent (
 }
 
 VOID
+ShvVpMarkVirtualized (
+    _In_ UINT32 ProcessorIndex
+    )
+{
+    _interlockedbittestandset(ShvVpVirtualizedBitmap, ProcessorIndex);
+}
+
+VOID
+ShvVpUnmarkVirtualized (
+    _In_ UINT32 ProcessorIndex
+    )
+{
+    _interlockedbittestandreset(ShvVpVirtualizedBitmap, ProcessorIndex);
+}
+
+VOID
 ShvCaptureSpecialRegisters (
     _In_ PSHV_SPECIAL_REGISTERS SpecialRegisters
     )
