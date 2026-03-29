@@ -104,6 +104,15 @@ typedef struct _SHV_VP_DATA
             UINT32 SvmAsidCount;
             UINT64 HostSaveAreaPhysicalAddress;
             UINT64 NptPml4PhysicalAddress;
+            UINT64 VmcbPhysicalAddress;
+            UINT64 HostVmcbPhysicalAddress;
+
+            //
+            // Where ShvSvmLaunch resumes if the first VMRUN fails. NULL once
+            // the guest ran
+            //
+            PCONTEXT SvmLaunchContext;
+            UINT8 SvmLaunchFailed;
 
             //
             // The hypervisor SimpleVisor is nested under, if any
@@ -190,9 +199,15 @@ typedef struct _SHV_VP_DATA
         DECLSPEC_ALIGN(PAGE_SIZE) VMX_VMCS Vmcs;
         DECLSPEC_ALIGN(PAGE_SIZE) SVM_VMCB Vmcb;
     };
+
+    //
+    // The host FS, GS, TR, LDTR and system call MSRs, which #VMEXIT does not
+    // restore
+    //
+    DECLSPEC_ALIGN(PAGE_SIZE) SVM_VMCB HostVmcb;
 } SHV_VP_DATA, *PSHV_VP_DATA;
 
-C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 6 + SHV_EPT_PML4E_COUNT - 1) * PAGE_SIZE));
+C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 7 + SHV_EPT_PML4E_COUNT - 1) * PAGE_SIZE));
 
 VOID
 _sldt (

@@ -22,9 +22,32 @@ Environment:
 
 #include "shv.h"
 
+//
+// The top of the hypervisor stack. ShvSvmVmrun runs with RSP at the CONTEXT,
+// and finds the host VMCB address right after it
+//
+typedef struct _SHV_SVM_HOST_FRAME
+{
+    CONTEXT Context;
+    UINT64 HostVmcbPhysicalAddress;
+} SHV_SVM_HOST_FRAME, *PSHV_SVM_HOST_FRAME;
+
+C_ASSERT(sizeof(CONTEXT) == 0x4D0);
+
+VOID
+ShvSvmVmrun (
+    VOID
+    );
+
 VOID
 ShvSvmHypercall (
     _Inout_ PCONTEXT Context
+    );
+
+DECLSPEC_NORETURN
+VOID
+ShvSvmHandleFatalExit (
+    _In_ PSHV_VP_STATE VpState
     );
 
 UINT8
@@ -505,24 +528,34 @@ ShvSvmHalt (
     }
 }
 
-UINT8
+DECLSPEC_NORETURN
+VOID
 ShvSvmEntryHandler (
-    _In_ PCONTEXT Context,
-    _In_ PSHV_VP_DATA VpData
+    _In_ PCONTEXT Context
     )
 {
     SHV_VP_STATE guestContext;
-    PSVM_VMCB vmcb = &VpData->Vmcb;
+    PSHV_VP_DATA vpData;
+    PSVM_VMCB vmcb;
     UINT32 index;
-    UINT64 vmcbPa;
 
     //
-    // A clobbered canary means the stack overflowed into the VP data
+    // Because we had to use RCX when calling ShvOsCaptureContext, its value
+    // was pushed on the stack right before the call
     //
-    if (VpData->StackCanary != SHV_STACK_CANARY)
+    Context->Rcx = *(UINT64*)((uintptr_t)Context - sizeof(Context->Rcx));
+
+    //
+    // The host frame sits at the top of the hypervisor stack, and the VP data
+    // at its bottom. A clobbered canary means the stack overflowed into it
+    //
+    vpData = (PSHV_VP_DATA)((uintptr_t)((PSHV_SVM_HOST_FRAME)Context + 1) -
+                            KERNEL_STACK_SIZE);
+    if (vpData->StackCanary != SHV_STACK_CANARY)
     {
         ShvSvmHalt();
     }
+    vmcb = &vpData->Vmcb;
 
     //
     // Build the VP state. The guest RAX is in the VMCB
@@ -533,23 +566,37 @@ ShvSvmEntryHandler (
     guestContext.GuestRsp = vmcb->Rsp;
     guestContext.ExitReason = (UINT16)vmcb->ExitCode;
     guestContext.VpRegs = Context;
-    guestContext.VpData = VpData;
+    guestContext.VpData = vpData;
     guestContext.ExitVm = FALSE;
     guestContext.SkipRipAdvance = FALSE;
 
     //
-    // VMRUN rejected the VMCB, return to ShvSvmLaunch
+    // VMRUN rejected the VMCB. If the guest never ran, return to ShvSvmLaunch,
+    // whose stack is still intact. Otherwise the guest cannot be resumed
     //
     if (vmcb->ExitCode == VMEXIT_INVALID)
     {
-        return 1;
+        if (vpData->SvmLaunchContext != NULL)
+        {
+            vpData->SvmLaunchFailed = TRUE;
+            __svm_stgi();
+            ShvOsRestoreContext(vpData->SvmLaunchContext);
+        }
+        ShvSvmHandleFatalExit(&guestContext);
     }
+
+    //
+    // The guest ran, so there is nothing to return to, and its TLB entries
+    // for the ASID are current
+    //
+    vpData->SvmLaunchContext = NULL;
+    vmcb->TlbControl = SVM_TLB_CONTROL_DO_NOTHING;
 
     //
     // Count the exit
     //
     index = ShvSvmExitIndex(guestContext.ExitReason);
-    VpData->ExitCounts[index]++;
+    vpData->ExitCounts[index]++;
 
     //
     // Dispatch the exit
@@ -562,19 +609,18 @@ ShvSvmEntryHandler (
     vmcb->Rax = Context->Rax;
 
     //
-    // On unload leave SVM and return to the guest. #VMEXIT cleared the GIF,
-    // so set it again
+    // On unload leave SVM and return to the guest, with its FS, GS, TR, LDTR
+    // and system call MSRs. #VMEXIT cleared the GIF, so set it again
     //
     if (guestContext.ExitVm != FALSE)
     {
-        Context->Rax = (uintptr_t)VpData >> 32;
-        Context->Rbx = (uintptr_t)VpData & 0xFFFFFFFF;
+        Context->Rax = (uintptr_t)vpData >> 32;
+        Context->Rbx = (uintptr_t)vpData & 0xFFFFFFFF;
         Context->Rcx = 0x43434343;
 
-        ShvOsUnprepareProcessor(VpData);
+        ShvOsUnprepareProcessor(vpData);
 
-        vmcbPa = ShvOsGetPhysicalAddress(&VpData->Vmcb);
-        __svm_vmload(vmcbPa);
+        __svm_vmload(vpData->VmcbPhysicalAddress);
         __writecr3(vmcb->Cr3);
         __svm_stgi();
         ShvSvmLeaveRootMode();
@@ -582,10 +628,19 @@ ShvSvmEntryHandler (
         Context->Rsp = guestContext.GuestRsp;
         Context->Rip = (UINT64)guestContext.GuestRip;
         Context->EFlags = (UINT32)guestContext.GuestEFlags;
-        ShvOsRestoreContext(Context);
+    }
+    else
+    {
+        //
+        // Resume into ShvSvmVmrun with the guest VMCB address in RAX, and RSP
+        // back at the host frame so that the stack does not drift
+        //
+        Context->Rax = vpData->VmcbPhysicalAddress;
+        Context->Rsp = (UINT64)Context;
+        Context->Rip = (UINT64)ShvSvmVmrun;
     }
 
-    return 0;
+    ShvOsRestoreContext(Context);
 }
 
 INT32
@@ -593,25 +648,55 @@ ShvSvmLaunch (
     _In_ PSHV_VP_DATA VpData
     )
 {
-    UINT64 vmcbPa;
-
-    vmcbPa = ShvOsGetPhysicalAddress(&VpData->Vmcb);
-
-    //
-    // The guest resumes in ShvVpInitialize, which checks that this processor
-    // is virtualized
-    //
-    __writecr3(VpData->SystemDirectoryTableBase);
-    ShvVpMarkVirtualized(VpData->ProcessorIndex);
+    PSHV_SVM_HOST_FRAME frame;
+    CONTEXT launchContext;
+    UINT64 cr3;
 
     //
-    // Run the guest. This only returns if VMRUN fails
+    // #VMEXIT does not restore the host FS, GS, TR, LDTR and system call MSRs,
+    // so save them for ShvSvmVmrun to load
     //
-    ShvSvmRun(VpData, vmcbPa, &VpData->ContextFrame);
+    VpData->VmcbPhysicalAddress = ShvOsGetPhysicalAddress(&VpData->Vmcb);
+    VpData->HostVmcbPhysicalAddress = ShvOsGetPhysicalAddress(&VpData->HostVmcb);
+    __svm_vmsave(VpData->HostVmcbPhysicalAddress);
+
+    //
+    // Start the guest with the registers captured in ShvVpInitialize. The host
+    // runs on the hypervisor stack, with interrupts off
+    //
+    frame = (PSHV_SVM_HOST_FRAME)(VpData->ShvStackLimit + KERNEL_STACK_SIZE) - 1;
+    __movsq((UINT64*)&frame->Context,
+            (UINT64*)&VpData->ContextFrame,
+            sizeof(CONTEXT) / sizeof(UINT64));
+    frame->Context.Rax = VpData->VmcbPhysicalAddress;
+    frame->Context.Rsp = (UINT64)&frame->Context;
+    frame->Context.Rip = (UINT64)ShvSvmVmrun;
+    frame->Context.EFlags &= ~EFLAGS_INTERRUPT_FLAG;
+    frame->HostVmcbPhysicalAddress = VpData->HostVmcbPhysicalAddress;
+
+    //
+    // ShvSvmEntryHandler resumes here if the first VMRUN fails
+    //
+    cr3 = __readcr3();
+    VpData->SvmLaunchFailed = FALSE;
+    VpData->SvmLaunchContext = &launchContext;
+    ShvOsCaptureContext(&launchContext);
+    if (VpData->SvmLaunchFailed == FALSE)
+    {
+        //
+        // The guest resumes in ShvVpInitialize, which checks that this
+        // processor is virtualized
+        //
+        __writecr3(VpData->SystemDirectoryTableBase);
+        ShvVpMarkVirtualized(VpData->ProcessorIndex);
+        ShvOsRestoreContext(&frame->Context);
+    }
 
     //
     // Undo the mark and leave root mode
     //
+    VpData->SvmLaunchContext = NULL;
+    __writecr3(cr3);
     ShvVpUnmarkVirtualized(VpData->ProcessorIndex);
     ShvSvmLeaveRootMode();
     return SHV_STATUS_NOT_AVAILABLE;

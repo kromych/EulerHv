@@ -15,6 +15,7 @@
   uefi/shvos.c
  
 [Sources.X64]
+  shvsvmhvx64.asm
   shvvmxhvx64.asm
   uefi/shvosx64.asm
  

@@ -102,13 +102,6 @@ ShvSvmIsAmd (
     VOID
     );
 
-VOID
-ShvSvmRun (
-    _In_ PSHV_VP_DATA VpData,
-    _In_ UINT64 VmcbPa,
-    _In_ PCONTEXT InitialContext
-    );
-
 SHV_CPU_CALLBACK ShvVpLoadCallback;
 SHV_CPU_CALLBACK ShvVpUnloadCallback;
 

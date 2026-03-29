@@ -198,8 +198,9 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 
 //
 // TLB_CONTROL (VMCB offset 0x05C). Value 1 flushes the entire TLB on VMRUN,
-// which is needed for the first entry with a new ASID
+// which is needed for the first entry with a new ASID, and 0 flushes nothing
 //
+#define SVM_TLB_CONTROL_DO_NOTHING              0
 #define SVM_TLB_CONTROL_FLUSH_ALL               1
 
 //
