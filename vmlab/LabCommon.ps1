@@ -420,7 +420,7 @@ function Show-LabResult {
         @{ Name = 'Guest test ran to completion';                       Pass = (& $get 'done') -eq '1' }
         @{ Name = 'Kernel debugging enabled on COM1 at 115200 baud';    Pass = ((& $get 'kd.debug') -eq 'Yes') -and ((& $get 'kd.debugtype') -eq 'Serial') -and
                                                                                ((& $get 'kd.debugport') -eq '1') -and ((& $get 'kd.baudrate') -eq '115200') }
-        @{ Name = 'Guest has VMX';                                      Pass = (& $get 'before.vmx') -eq '1' }
+        @{ Name = 'Guest has VMX or SVM';                               Pass = ((& $get 'before.vmx') -eq '1') -or ((& $get 'before.svm') -eq '1') }
         @{ Name = 'SimpleVisor not detected before loading';            Pass = (& $get 'before.simplevisor') -eq '0' }
         @{ Name = 'sc start simplevisor succeeded';                     Pass = (& $get 'load.exit') -eq '0' }
         @{ Name = 'SimpleVisor detected while loaded';                  Pass = (& $get 'loaded.simplevisor') -eq '1' }
@@ -428,6 +428,7 @@ function Show-LabResult {
         @{ Name = 'Hypervisor vendor leaf unchanged while loaded';      Pass = (& $get 'loaded.hv_vendor') -eq (& $get 'before.hv_vendor') }
         @{ Name = 'Hypervisor interface leaf unchanged while loaded';   Pass = (& $get 'loaded.hv_interface') -eq (& $get 'before.hv_interface') }
         @{ Name = 'WAITPKG hidden, or usable, while loaded';            Pass = (& $get 'loaded.waitpkg_exec') -in @('ok', 'skipped') }
+        @{ Name = 'SVM bit unchanged while loaded';                     Pass = (& $get 'loaded.svm') -eq (& $get 'before.svm') }
         @{ Name = 'VM-Exit counters readable while loaded';             Pass = ((& $get 'loaded.exits.processors') -match '^[1-9]') -and
                                                                                ((& $get 'loaded.exits.total') -match '^[1-9]') }
         @{ Name = 'sc stop simplevisor succeeded';                      Pass = (& $get 'unload.exit') -eq '0' }
@@ -457,8 +458,8 @@ function Show-LabResult {
     if ((& $get 'load.exit') -ne '0') {
         Write-Host "sc start: $(& $get 'load.output')"
     }
-    if ((& $get 'before.vmx') -ne '1') {
-        Write-Warning "The guest has no VMX, so SimpleVisor cannot load in it. $NoVmxHint"
+    if (((& $get 'before.vmx') -ne '1') -and ((& $get 'before.svm') -ne '1')) {
+        Write-Warning "The guest has neither VMX nor SVM, so SimpleVisor cannot load in it. $NoVmxHint"
     }
     $failed = 0
     foreach ($check in $checks) {

@@ -25,7 +25,8 @@ guest setup, the guest test and the checks:
   runs on top of it and can't nest, and SimpleVisor has no VT-x to load on. VBS
   features count too, such as Memory Integrity and Credential Guard. The scripts
   check this and say what to turn off.
-- **An Intel CPU.** SimpleVisor is VT-x only.
+- **An Intel or AMD CPU.** SimpleVisor uses VT-x on Intel and SVM on AMD, and
+  the guest test accepts either. The labs have only been run on Intel so far.
 - **The Enterprise WDK**, used to build SimpleVisor, sign it and run the
   debugger. By default the scripts look for it in a `wdk` directory next to this
   repo. Set `SHV_WDK_ROOT` or pass `-WdkRoot` to use another location.

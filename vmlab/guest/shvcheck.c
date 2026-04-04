@@ -150,12 +150,27 @@ main (
     int waitPkg;
 
     //
-    // CPUID 1h: VMX, without which SimpleVisor cannot load at all, and the
+    // CPUID 1h: VMX, without which SimpleVisor cannot load on Intel, and the
     // Hypervisor Present-bit, which SimpleVisor always sets
     //
     __cpuid(cpuInfo, 1);
     printf("vmx=%d\n", (cpuInfo[2] >> 5) & 1);
     printf("hypervisor_present=%d\n", (cpuInfo[2] >> 31) & 1);
+
+    //
+    // CPUID 80000001h: SVM, without which SimpleVisor cannot load on AMD, and
+    // which it keeps reporting while loaded
+    //
+    __cpuid(cpuInfo, 0x80000000);
+    if ((UINT32)cpuInfo[0] >= 0x80000001)
+    {
+        __cpuid(cpuInfo, 0x80000001);
+        printf("svm=%d\n", (cpuInfo[2] >> 2) & 1);
+    }
+    else
+    {
+        printf("svm=0\n");
+    }
 
     //
     // CPUID 40000000h/40000001h: the hypervisor vendor and interface. When
