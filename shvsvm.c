@@ -70,6 +70,73 @@ ShvSvmIsAmd (
             (cpuInfo[2] == CPUID_VENDOR_HYGON_ECX));
 }
 
+static
+UINT64
+ShvSvmGetEferValidBits (
+    VOID
+    )
+{
+    INT32 cpuInfo[4];
+    UINT32 maxLeaf;
+    UINT64 validBits;
+
+    //
+    // Long mode and SYSCALL are always there. SVM looks disabled by the
+    // firmware, so SVME is reserved. Bits the OS already set are valid
+    // regardless
+    //
+    validBits = EFER_SCE | EFER_LME | EFER_LMA;
+    validBits |= __readmsr(MSR_EFER) & ~EFER_SVME;
+
+    __cpuid(cpuInfo, 0x80000000);
+    maxLeaf = (UINT32)cpuInfo[0];
+
+    __cpuid(cpuInfo, CPUID_EXTENDED_FEATURES);
+    if ((cpuInfo[3] & CPUID_EXTENDED_FEATURES_EDX_NX) != 0)
+    {
+        validBits |= EFER_NXE;
+    }
+    if ((cpuInfo[3] & CPUID_EXTENDED_FEATURES_EDX_FFXSR) != 0)
+    {
+        validBits |= EFER_FFXSR;
+    }
+    if ((cpuInfo[2] & CPUID_EXTENDED_FEATURES_ECX_TCE) != 0)
+    {
+        validBits |= EFER_TCE;
+    }
+
+    if (maxLeaf >= CPUID_ADDRESS_SIZES)
+    {
+        __cpuid(cpuInfo, CPUID_ADDRESS_SIZES);
+        if ((cpuInfo[1] & CPUID_ADDRESS_SIZES_EBX_NO_LMSLE) == 0)
+        {
+            validBits |= EFER_LMSLE;
+        }
+        if ((cpuInfo[1] & CPUID_ADDRESS_SIZES_EBX_MCOMMIT) != 0)
+        {
+            validBits |= EFER_MCOMMIT;
+        }
+        if ((cpuInfo[1] & CPUID_ADDRESS_SIZES_EBX_INT_WBINVD) != 0)
+        {
+            validBits |= EFER_INTWB;
+        }
+    }
+
+    if (maxLeaf >= CPUID_EXTENDED_FEATURES_2)
+    {
+        __cpuid(cpuInfo, CPUID_EXTENDED_FEATURES_2);
+        if ((cpuInfo[0] & CPUID_EXTENDED_FEATURES_2_EAX_UAI) != 0)
+        {
+            validBits |= EFER_UAIE;
+        }
+        if ((cpuInfo[0] & CPUID_EXTENDED_FEATURES_2_EAX_AUTO_IBRS) != 0)
+        {
+            validBits |= EFER_AIBRSE;
+        }
+    }
+    return validBits;
+}
+
 UINT8
 ShvSvmProbe (
     _In_ PSHV_VP_DATA VpData
@@ -125,6 +192,8 @@ ShvSvmProbe (
     {
         return FALSE;
     }
+
+    VpData->SvmEferValidBits = ShvSvmGetEferValidBits();
     return TRUE;
 }
 
@@ -819,13 +888,6 @@ ShvSvmHandleCpuid (
         //
         cpu_info[2] |= HYPERV_HYPERVISOR_PRESENT_BIT;
     }
-    else if (VpState->VpRegs->Rax == CPUID_EXTENDED_FEATURES)
-    {
-        //
-        // Hide SVM, as the SVM instructions raise #UD in the guest
-        //
-        cpu_info[2] &= ~CPUID_EXTENDED_FEATURES_ECX_SVM;
-    }
     else if (((UINT32)VpState->VpRegs->Rax == 7) &&
              ((UINT32)VpState->VpRegs->Rcx == 0) &&
              (VpState->VpData->UserWaitPauseEnabled == FALSE))
@@ -877,13 +939,19 @@ ShvSvmHandleMsr (
 
     //
     // VMRUN needs SVME in the guest EFER. Keep it set, and hide it from the
-    // guest
+    // guest. Raise #GP for reserved bits, as the processor would, rather than
+    // fail the next VMRUN
     //
     if (msr == MSR_EFER)
     {
         if (vmcb->ExitInfo1 != 0)
         {
             value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
+            if ((value & ~VpState->VpData->SvmEferValidBits) != 0)
+            {
+                ShvSvmInjectGeneralProtection(VpState);
+                return;
+            }
             vmcb->Efer = value | EFER_SVME;
             vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_CRX;
         }
@@ -897,11 +965,37 @@ ShvSvmHandleMsr (
     }
 
     //
-    // VM_HSAVE_PA and VM_CR belong to the hypervisor, not the guest
+    // SVM stays in CPUID, but looks disabled by the firmware, with VM_CR.SVMDIS
+    // and VM_CR.LOCK set, so VM_CR is read-only. VM_HSAVE_PA has no effect
+    // without SVM, so the guest gets a copy of its own
     //
-    if ((msr == MSR_VM_HSAVE_PA) || (msr == MSR_VM_CR))
+    if (msr == MSR_VM_CR)
     {
-        ShvSvmInjectGeneralProtection(VpState);
+        if (vmcb->ExitInfo1 != 0)
+        {
+            ShvSvmInjectGeneralProtection(VpState);
+        }
+        else
+        {
+            value = __readmsr(MSR_VM_CR) | VM_CR_SVMDIS | VM_CR_LOCK;
+            VpState->VpRegs->Rax = (UINT32)value;
+            VpState->VpRegs->Rdx = value >> 32;
+        }
+        return;
+    }
+    if (msr == MSR_VM_HSAVE_PA)
+    {
+        if (vmcb->ExitInfo1 != 0)
+        {
+            VpState->VpData->SvmGuestHostSaveArea =
+                VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
+        }
+        else
+        {
+            value = VpState->VpData->SvmGuestHostSaveArea;
+            VpState->VpRegs->Rax = (UINT32)value;
+            VpState->VpRegs->Rdx = value >> 32;
+        }
         return;
     }
 

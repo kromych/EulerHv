@@ -46,10 +46,34 @@ Environment:
 #define CPUID_SVM_FEATURES_EDX_DECODE_ASSISTS   0x00000080
 
 //
-// EFER.SVME enables the SVM instructions
+// EFER.SVME enables the SVM instructions. The other EFER bits are reserved
+// unless the processor reports them in CPUID 8000_0001, 8000_0008 EBX or
+// 8000_0021 EAX, and VMRUN fails on a guest EFER with reserved bits set
 //
 #define MSR_EFER                                0xC0000080
+#define EFER_SCE                                (1ULL << 0)
+#define EFER_LME                                (1ULL << 8)
+#define EFER_LMA                                (1ULL << 10)
+#define EFER_NXE                                (1ULL << 11)
 #define EFER_SVME                               (1ULL << 12)
+#define EFER_LMSLE                              (1ULL << 13)
+#define EFER_FFXSR                              (1ULL << 14)
+#define EFER_TCE                                (1ULL << 15)
+#define EFER_MCOMMIT                            (1ULL << 17)
+#define EFER_INTWB                              (1ULL << 18)
+#define EFER_UAIE                               (1ULL << 20)
+#define EFER_AIBRSE                             (1ULL << 21)
+
+#define CPUID_EXTENDED_FEATURES_ECX_TCE         0x00020000
+#define CPUID_EXTENDED_FEATURES_EDX_NX          0x00100000
+#define CPUID_EXTENDED_FEATURES_EDX_FFXSR       0x02000000
+#define CPUID_ADDRESS_SIZES                     0x80000008
+#define CPUID_ADDRESS_SIZES_EBX_MCOMMIT         0x00000100
+#define CPUID_ADDRESS_SIZES_EBX_INT_WBINVD      0x00002000
+#define CPUID_ADDRESS_SIZES_EBX_NO_LMSLE        0x00100000
+#define CPUID_EXTENDED_FEATURES_2               0x80000021
+#define CPUID_EXTENDED_FEATURES_2_EAX_UAI       0x00000080
+#define CPUID_EXTENDED_FEATURES_2_EAX_AUTO_IBRS 0x00000100
 
 //
 // The firmware disables SVM with VM_CR.SVMDIS, and VM_CR.LOCK makes it read-only

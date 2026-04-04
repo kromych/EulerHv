@@ -97,11 +97,14 @@ typedef struct _SHV_VP_DATA
             UINT32 EptControls;
 
             //
-            // The SVM features (CPUID 8000_000A EDX) and number of ASIDs. The
-            // nested page table root is 0 without nested paging
+            // The SVM features (CPUID 8000_000A EDX), number of ASIDs, the EFER
+            // bits the guest may set and the guest's VM_HSAVE_PA. The nested
+            // page table root is 0 without nested paging
             //
             UINT32 SvmFeatures;
             UINT32 SvmAsidCount;
+            UINT64 SvmEferValidBits;
+            UINT64 SvmGuestHostSaveArea;
             UINT64 HostSaveAreaPhysicalAddress;
             UINT64 NptPml4PhysicalAddress;
             UINT64 VmcbPhysicalAddress;
