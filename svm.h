@@ -64,6 +64,11 @@ Environment:
 #define EFER_UAIE                               (1ULL << 20)
 #define EFER_AIBRSE                             (1ULL << 21)
 
+//
+// EFER.LME cannot change while CR0.PG is set
+//
+#define CR0_PG                                  (1ULL << 31)
+
 #define CPUID_EXTENDED_FEATURES_ECX_TCE         0x00020000
 #define CPUID_EXTENDED_FEATURES_EDX_NX          0x00100000
 #define CPUID_EXTENDED_FEATURES_EDX_FFXSR       0x02000000

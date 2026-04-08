@@ -939,20 +939,23 @@ ShvSvmHandleMsr (
 
     //
     // VMRUN needs SVME in the guest EFER. Keep it set, and hide it from the
-    // guest. Raise #GP for reserved bits, as the processor would, rather than
-    // fail the next VMRUN
+    // guest. Raise #GP for reserved bits and for changing LME with paging on,
+    // as the processor would, rather than fail the next VMRUN. LMA is read-only
+    // and writes to it are ignored
     //
     if (msr == MSR_EFER)
     {
         if (vmcb->ExitInfo1 != 0)
         {
             value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
-            if ((value & ~VpState->VpData->SvmEferValidBits) != 0)
+            if (((value & ~VpState->VpData->SvmEferValidBits) != 0) ||
+                (((vmcb->Cr0 & CR0_PG) != 0) &&
+                 (((value ^ vmcb->Efer) & EFER_LME) != 0)))
             {
                 ShvSvmInjectGeneralProtection(VpState);
                 return;
             }
-            vmcb->Efer = value | EFER_SVME;
+            vmcb->Efer = (value & ~EFER_LMA) | (vmcb->Efer & EFER_LMA) | EFER_SVME;
             vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_CRX;
         }
         else
