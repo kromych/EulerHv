@@ -214,6 +214,7 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define VM_EXIT_SAVE_PREEMPT_TIMER              0x00400000
 #define VM_EXIT_CLEAR_BNDCFGS                   0x00800000
 
+#define VM_ENTRY_LOAD_DEBUG_CNTRLS              0x00000004
 #define VM_ENTRY_IA32E_MODE                     0x00000200
 #define VM_ENTRY_SMM                            0x00000400
 #define VM_ENTRY_DEACT_DUAL_MONITOR             0x00000800

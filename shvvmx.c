@@ -314,18 +314,23 @@ ShvVmxSetupVmcsForVp (
                                             CPU_BASED_ACTIVATE_SECONDARY_CONTROLS));
 
     //
-    // Make sure to enter us in x64 mode at all times.
+    // Make sure to enter us in x64 mode at all times. VM-Exits set DR7 to 400h
+    // and clear IA32_DEBUGCTL, so save the guest ones, which the true controls
+    // let processors leave out
     //
     __vmx_vmwrite(VM_EXIT_CONTROLS,
                            ShvUtilAdjustMsr(VpData->MsrData[15],
-                                            VM_EXIT_IA32E_MODE));
+                                            VM_EXIT_IA32E_MODE |
+                                            VM_EXIT_SAVE_DEBUG_CNTRLS));
 
     //
-    // As we exit back into the guest, make sure to exist in x64 mode as well.
+    // As we exit back into the guest, make sure to exist in x64 mode as well,
+    // with the guest DR7 and IA32_DEBUGCTL loaded back
     //
     __vmx_vmwrite(VM_ENTRY_CONTROLS,
                            ShvUtilAdjustMsr(VpData->MsrData[16],
-                                            VM_ENTRY_IA32E_MODE));
+                                            VM_ENTRY_IA32E_MODE |
+                                            VM_ENTRY_LOAD_DEBUG_CNTRLS));
 
     //
     // Load the CS Segment (Ring 0 Code)
