@@ -255,7 +255,7 @@ ShvVmxHandleCpuid (
     //
     // Check if this was CPUID 1h, which is the features request.
     //
-    if (VpState->VpRegs->Rax == 1)
+    if ((UINT32)VpState->VpRegs->Rax == 1)
     {
         //
         // Set the Hypervisor Present-bit in RCX, which Intel and AMD have both
@@ -273,7 +273,7 @@ ShvVmxHandleCpuid (
         //
         cpu_info[2] &= ~(1 << 5);
     }
-    else if ((VpState->VpRegs->Rax == HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS) &&
+    else if (((UINT32)VpState->VpRegs->Rax == HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS) &&
              (VpState->VpData->UnderlyingHypervisor == FALSE))
     {
         //
@@ -288,7 +288,7 @@ ShvVmxHandleCpuid (
         cpu_info[2] = 'iVel';
         cpu_info[3] = 'ros';
     }
-    else if ((VpState->VpRegs->Rax == HYPERV_CPUID_INTERFACE) &&
+    else if (((UINT32)VpState->VpRegs->Rax == HYPERV_CPUID_INTERFACE) &&
              (VpState->VpData->UnderlyingHypervisor == FALSE))
     {
         //
@@ -300,11 +300,12 @@ ShvVmxHandleCpuid (
 
     //
     // Copy the values from the logical processor registers into the VP GPRs.
+    // CPUID zero-extends them into the 64-bit registers
     //
-    VpState->VpRegs->Rax = cpu_info[0];
-    VpState->VpRegs->Rbx = cpu_info[1];
-    VpState->VpRegs->Rcx = cpu_info[2];
-    VpState->VpRegs->Rdx = cpu_info[3];
+    VpState->VpRegs->Rax = (UINT32)cpu_info[0];
+    VpState->VpRegs->Rbx = (UINT32)cpu_info[1];
+    VpState->VpRegs->Rcx = (UINT32)cpu_info[2];
+    VpState->VpRegs->Rdx = (UINT32)cpu_info[3];
 }
 
 VOID
