@@ -23,8 +23,9 @@ Environment:
 #include "shv.h"
 
 //
-// One bit per logical processor that SimpleVisor runs on. Only
-// ShvVpRestoreAfterLaunch sets it, after a successful VMLAUNCH. Unlike
+// One bit per logical processor that SimpleVisor runs on. Only the backend
+// sets it, once the guest is about to run: ShvVpRestoreAfterLaunch after a
+// successful VMLAUNCH, or ShvSvmLaunch right before the first VMRUN. Unlike
 // EFLAGS.AC, which a kernel using SMAP sets on its own, the OS cannot set it
 //
 static volatile long* ShvVpVirtualizedBitmap;
