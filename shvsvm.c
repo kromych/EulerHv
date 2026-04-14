@@ -535,6 +535,15 @@ ShvSvmSetupVmcbForVp (
     vmcb->Cpl = 0;
 
     //
+    // With V_SPEC_CTRL, VMRUN loads SPEC_CTRL from the VMCB, so give the guest
+    // the speculation controls the OS set rather than none
+    //
+    if ((VpData->SvmFeatures & CPUID_SVM_FEATURES_EDX_V_SPEC_CTRL) != 0)
+    {
+        vmcb->SpecCtrl = __readmsr(MSR_SPEC_CTRL);
+    }
+
+    //
     // Load debug registers
     //
     vmcb->Dr7 = state->KernelDr7;
@@ -686,6 +695,15 @@ ShvSvmEntryHandler (
         __svm_vmload(vpData->VmcbPhysicalAddress);
         __writecr3(vmcb->Cr3);
         __svm_stgi();
+
+        //
+        // #VMEXIT restored the SPEC_CTRL from before the first VMRUN, so
+        // restore the guest one
+        //
+        if ((vpData->SvmFeatures & CPUID_SVM_FEATURES_EDX_V_SPEC_CTRL) != 0)
+        {
+            __writemsr(MSR_SPEC_CTRL, vmcb->SpecCtrl);
+        }
         ShvSvmLeaveRootMode();
 
         Context->Rsp = guestContext.GuestRsp;

@@ -44,6 +44,13 @@ Environment:
 #define CPUID_SVM_FEATURES_EDX_NRIPS            0x00000008
 #define CPUID_SVM_FEATURES_EDX_VMCB_CLEAN       0x00000020
 #define CPUID_SVM_FEATURES_EDX_DECODE_ASSISTS   0x00000080
+#define CPUID_SVM_FEATURES_EDX_V_SPEC_CTRL      0x00100000
+
+//
+// With V_SPEC_CTRL, VMRUN loads the guest SPEC_CTRL from the VMCB, and
+// #VMEXIT saves it there and restores the host one
+//
+#define MSR_SPEC_CTRL                           0x00000048
 
 //
 // EFER.SVME enables the SVM instructions. The other EFER bits are reserved
@@ -357,7 +364,9 @@ typedef struct _SVM_VMCB
             UINT64 Cr2;                         // 0x640
             UINT8 StateArea6[0x20];             // 0x648
             UINT64 Pat;                         // 0x668
-            UINT8 StateArea7[0x390];            // 0x670-0x9FF
+            UINT8 StateArea7[0x70];             // 0x670: DebugCtl, LBRs
+            UINT64 SpecCtrl;                    // 0x6E0
+            UINT8 StateArea8[0x318];            // 0x6E8-0x9FF
             UINT8 AvailableForSoftware[0x600];  // 0xA00-0xFFF
         };
         UINT8 Raw[PAGE_SIZE];
