@@ -665,6 +665,13 @@ ShvVmxEntryHandler (
         __writecr3(ShvVmxRead(GUEST_CR3));
 
         //
+        // The VM-Exit set DR7 to 400h and cleared IA32_DEBUGCTL, so restore
+        // the guest ones, keeping its hardware breakpoints
+        //
+        __writedr(7, ShvVmxRead(GUEST_DR7));
+        __writemsr(MSR_DEBUG_CTL, ShvVmxRead(GUEST_IA32_DEBUGCTL));
+
+        //
         // Finally, restore the stack, instruction pointer and EFLAGS to the
         // original values present when the instruction causing our VM-Exit
         // execute (such as ShvVpUninitialize). This will effectively act as

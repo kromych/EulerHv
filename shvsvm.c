@@ -697,14 +697,17 @@ ShvSvmEntryHandler (
         __svm_stgi();
 
         //
-        // #VMEXIT restored the SPEC_CTRL from before the first VMRUN, so
-        // restore the guest one
+        // #VMEXIT restored the EFER and SPEC_CTRL from before the first VMRUN,
+        // and disabled DR7, so restore the guest ones. EFER keeps SVME until
+        // SVM is left
         //
+        __writemsr(MSR_EFER, vmcb->Efer);
         if ((vpData->SvmFeatures & CPUID_SVM_FEATURES_EDX_V_SPEC_CTRL) != 0)
         {
             __writemsr(MSR_SPEC_CTRL, vmcb->SpecCtrl);
         }
         ShvSvmLeaveRootMode();
+        __writedr(7, vmcb->Dr7);
 
         Context->Rsp = guestContext.GuestRsp;
         Context->Rip = (UINT64)guestContext.GuestRip;
