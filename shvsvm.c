@@ -1124,12 +1124,25 @@ ShvSvmHandleExit (
 
     //
     // Move the instruction pointer past the exiting instruction, unless the
-    // handler injected a fault
+    // handler injected a fault. Like any instruction, it ends the STI and
+    // MOV SS shadow, and single-steps with RFLAGS.TF, unless DEBUGCTL.BTF
+    // limits that to branches. Without LBR virtualization the guest DEBUGCTL
+    // is the processor's
     //
     if (VpState->SkipRipAdvance == FALSE)
     {
         VpState->GuestRip = vmcb->NextRip;
         vmcb->Rip = VpState->GuestRip;
+        vmcb->InterruptShadow &= ~SVM_INTERRUPT_SHADOW;
+
+        if (((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0) &&
+            ((__readmsr(MSR_DEBUG_CTL) & DEBUG_CTL_BTF) == 0))
+        {
+            vmcb->Dr6 |= DR6_BS;
+            vmcb->EventInj = SVM_EVENTINJ_VALID |
+                             SVM_EVENTINJ_TYPE_EXCEPTION |
+                             INTR_INFO_VECTOR_DB;
+        }
     }
 }
 

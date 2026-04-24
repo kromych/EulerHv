@@ -240,6 +240,12 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 #define SVM_TLB_CONTROL_FLUSH_ALL               1
 
 //
+// INTERRUPT_SHADOW (VMCB offset 0x068). Set when the guest exited in the
+// shadow of STI or MOV SS
+//
+#define SVM_INTERRUPT_SHADOW                    (1UL << 0)
+
+//
 // VMCB clean bits (VMCB offset 0x0C0). A clear bit makes VMRUN reload the
 // fields of its group
 //
@@ -317,7 +323,9 @@ typedef struct _SVM_VMCB
             UINT8 ControlArea2[0x08];           // 0x050: TSC offset
             UINT32 GuestAsid;                   // 0x058
             UINT32 TlbControl;                  // 0x05C
-            UINT8 ControlArea3[0x10];           // 0x060: virtual interrupt
+            UINT8 ControlArea3[0x08];           // 0x060: virtual interrupt
+            UINT32 InterruptShadow;             // 0x068
+            UINT32 ControlArea3_;               // 0x06C
             UINT64 ExitCode;                    // 0x070
             UINT64 ExitInfo1;                   // 0x078
             UINT64 ExitInfo2;                   // 0x080

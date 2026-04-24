@@ -28,6 +28,8 @@ Environment:
 #define DPL_SYSTEM              0
 #define MSR_GS_BASE             0xC0000101
 #define MSR_DEBUG_CTL           0x1D9
+#define DEBUG_CTL_BTF           (1ULL << 1)
+#define DR6_BS                  (1ULL << 14)
 #define RPL_MASK                3
 #define MTRR_TYPE_UC            0
 #define MTRR_TYPE_USWC          1
@@ -41,6 +43,7 @@ Environment:
 #define EFLAGS_AUX_CARRY_FLAG   0x10
 #define EFLAGS_ZERO_FLAG        0x40
 #define EFLAGS_SIGN_FLAG        0x80
+#define EFLAGS_TRAP_FLAG        0x100
 #define EFLAGS_INTERRUPT_FLAG   0x200
 #define EFLAGS_OVERFLOW_FLAG    0x800
 #define EFLAGS_ALIGN_CHECK      0x40000
@@ -244,6 +247,7 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define SECONDARY_EXEC_TSC_SCALING              0x02000000
 #define SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE    0x04000000
 
+#define INTR_INFO_VECTOR_DB                     1
 #define INTR_INFO_VECTOR_UD                     6
 #define INTR_INFO_VECTOR_GP                     13
 #define INTR_INFO_TYPE_HARD_EXCEPTION           (3 << 8)
@@ -517,6 +521,8 @@ enum vmcs_field {
 
 #define GUEST_INTR_STATE_STI            0x00000001
 #define GUEST_INTR_STATE_MOV_SS         0x00000002
+
+#define GUEST_PENDING_DBG_BS            (1ULL << 14)
 
 #define VMX_MISC_HLT_ACTIVITY_STATE     (1 << 6)
 

@@ -494,6 +494,8 @@ ShvVmxHandleExit (
     _In_ PSHV_VP_STATE VpState
     )
 {
+    uintptr_t interruptibility;
+
     //
     // This is the generic VM-Exit handler. Decode the reason for the exit and
     // call the appropriate handler. As per Intel specifications, given that we
@@ -562,12 +564,30 @@ ShvVmxHandleExit (
 
     //
     // Move the instruction pointer past the exiting instruction, unless the
-    // handler injected a fault
+    // handler injected a fault. Like any instruction, it ends the STI and
+    // MOV SS blocking, and single-steps with RFLAGS.TF, unless IA32_DEBUGCTL.BTF
+    // limits that to branches. The pending debug exception delivers the #DB
     //
     if (VpState->SkipRipAdvance == FALSE)
     {
         VpState->GuestRip += ShvVmxRead(VM_EXIT_INSTRUCTION_LEN);
         __vmx_vmwrite(GUEST_RIP, VpState->GuestRip);
+
+        interruptibility = ShvVmxRead(GUEST_INTERRUPTIBILITY_INFO);
+        if ((interruptibility & (GUEST_INTR_STATE_STI | GUEST_INTR_STATE_MOV_SS)) != 0)
+        {
+            __vmx_vmwrite(GUEST_INTERRUPTIBILITY_INFO,
+                          interruptibility &
+                          ~(GUEST_INTR_STATE_STI | GUEST_INTR_STATE_MOV_SS));
+        }
+
+        if (((VpState->GuestEFlags & EFLAGS_TRAP_FLAG) != 0) &&
+            ((ShvVmxRead(GUEST_IA32_DEBUGCTL) & DEBUG_CTL_BTF) == 0))
+        {
+            __vmx_vmwrite(GUEST_PENDING_DBG_EXCEPTIONS,
+                          ShvVmxRead(GUEST_PENDING_DBG_EXCEPTIONS) |
+                          GUEST_PENDING_DBG_BS);
+        }
     }
 }
 
