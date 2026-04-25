@@ -335,6 +335,32 @@ ShvOsGetActiveProcessorCount (
     return (INT32)enabledCpuCount;
 }
 
+INT32
+ShvOsGetMaximumProcessorCount (
+    VOID
+    )
+{
+    EFI_STATUS efiStatus;
+    UINTN cpuCount, enabledCpuCount;
+
+    //
+    // Ask PI MP Services for how many CPUs there are, including disabled ones,
+    // as WhoAmI numbers them all
+    //
+    efiStatus = _gPiMpService->GetNumberOfProcessors(_gPiMpService,
+                                                     &cpuCount,
+                                                     &enabledCpuCount);
+    if (efiStatus != EFI_SUCCESS)
+    {
+        cpuCount = 0;
+    }
+
+    //
+    // Return the count
+    //
+    return (INT32)cpuCount;
+}
+
 VOID
 ShvOsDebugPrintWide (
     _In_ CHAR16* Format,

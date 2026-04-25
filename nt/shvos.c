@@ -328,6 +328,18 @@ ShvOsGetActiveProcessorCount (
     return (INT32)KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
 }
 
+INT32
+ShvOsGetMaximumProcessorCount (
+    VOID
+    )
+{
+    //
+    // Get the group-wide CPU count, including processors that are not active
+    // or not added yet, which KeGetCurrentProcessorNumberEx stays below
+    //
+    return (INT32)KeQueryMaximumProcessorCountEx(ALL_PROCESSOR_GROUPS);
+}
+
 VOID
 ShvOsDebugPrint (
     _In_ PCCH Format,

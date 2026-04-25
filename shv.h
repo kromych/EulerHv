@@ -198,6 +198,11 @@ ShvOsGetActiveProcessorCount (
     );
 
 INT32
+ShvOsGetMaximumProcessorCount (
+    VOID
+    );
+
+INT32
 ShvOsGetCurrentProcessorNumber (
     VOID
     );

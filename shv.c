@@ -95,9 +95,10 @@ ShvLoad (
     ShvArch = ShvSvmIsAmd() ? &ShvSvmArch : &ShvVmxArch;
 
     //
-    // Track which logical processors SimpleVisor runs on
+    // Track which logical processors SimpleVisor runs on, by processor number,
+    // which can exceed the number of active processors
     //
-    status = ShvVpAllocateTracking(ShvOsGetActiveProcessorCount());
+    status = ShvVpAllocateTracking(ShvOsGetMaximumProcessorCount());
     if (status != SHV_STATUS_SUCCESS)
     {
         return status;
