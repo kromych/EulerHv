@@ -90,6 +90,12 @@ typedef struct _SHV_VP_DATA
             UINT64 SystemDirectoryTableBase;
             LARGE_INTEGER MsrData[17];
             SHV_MTRR_RANGE MtrrData[16];
+
+            //
+            // The memory type outside the variable MTRRs, UC with the MTRRs
+            // disabled
+            //
+            UINT32 MtrrDefaultType;
             UINT64 VmxOnPhysicalAddress;
             UINT64 VmcsPhysicalAddress;
             UINT64 MsrBitmapPhysicalAddress;

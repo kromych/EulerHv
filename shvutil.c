@@ -113,7 +113,20 @@ ShvUtilMtrrInitialize (
     MTRR_CAPABILITIES mtrrCapabilities;
     MTRR_VARIABLE_BASE mtrrBase;
     MTRR_VARIABLE_MASK mtrrMask;
+    UINT64 mtrrDefault;
     unsigned long bit;
+
+    //
+    // The default type applies outside the variable MTRRs. With the MTRRs
+    // disabled all memory is UC, and the variable MTRRs do not apply
+    //
+    mtrrDefault = __readmsr(MTRR_MSR_DEFAULT);
+    if ((mtrrDefault & MTRR_DEFAULT_ENABLE) == 0)
+    {
+        VpData->MtrrDefaultType = MTRR_TYPE_UC;
+        return;
+    }
+    VpData->MtrrDefaultType = (UINT32)(mtrrDefault & MTRR_DEFAULT_TYPE_MASK);
 
     //
     // Read the capabilities mask
@@ -156,92 +169,75 @@ ShvUtilMtrrInitialize (
     }
 }
 
+static
 UINT32
-ShvUtilMtrrAdjustEffectiveMemoryType (
-    _In_ PSHV_VP_DATA VpData,
-    _In_ UINT64 LargePageAddress,
-    _In_ UINT32 CandidateMemoryType
+ShvUtilMtrrCombineMemoryTypes (
+    _In_ UINT32 MemoryType,
+    _In_ UINT32 OtherMemoryType
     )
 {
-    UINT32 i;
-
     //
-    // Loop each MTRR range
+    // Overlapping MTRRs follow the precedence of the SDM: UC wins, WT wins over
+    // WB, and other mixes are undefined, so use UC, which is always safe.
+    // MTRR_TYPE_MAX stands for no type yet
     //
-    for (i = 0; i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0]); i++)
+    if ((MemoryType == MTRR_TYPE_MAX) || (MemoryType == OtherMemoryType))
     {
-        //
-        // Check if it's active
-        //
-        if (VpData->MtrrData[i].Enabled != FALSE)
-        {
-            //
-            // Check if this large page falls within the boundary. If a single
-            // physical page (4KB) touches it, we need to override the entire 2MB.
-            //
-            if (((LargePageAddress + (_2MB - 1)) >= VpData->MtrrData[i].PhysicalAddressMin) &&
-                (LargePageAddress <= VpData->MtrrData[i].PhysicalAddressMax))
-            {
-                //
-                // Override candidate type with MTRR type
-                //
-                CandidateMemoryType = VpData->MtrrData[i].Type;
-            }
-        }
+        return OtherMemoryType;
     }
-
-    //
-    // Return the correct type needed
-    //
-    return CandidateMemoryType;
+    if (((MemoryType == MTRR_TYPE_WT) && (OtherMemoryType == MTRR_TYPE_WB)) ||
+        ((MemoryType == MTRR_TYPE_WB) && (OtherMemoryType == MTRR_TYPE_WT)))
+    {
+        return MTRR_TYPE_WT;
+    }
+    return MTRR_TYPE_UC;
 }
 
 UINT32
-ShvUtilMtrrGetHugePageMemoryType (
+ShvUtilMtrrGetMemoryType (
     _In_ PSHV_VP_DATA VpData,
-    _In_ UINT64 HugePageAddress,
-    _In_ UINT32 DefaultMemoryType
+    _In_ UINT64 PageAddress,
+    _In_ UINT64 PageSize
     )
 {
     UINT32 i;
     UINT32 memoryType;
-    UINT64 hugePageEnd;
+    UINT64 pageEnd;
+    UINT8 covered;
 
     //
-    // A 1GB page has a single memory type, so use an MTRR type only if it
-    // covers the whole 1GB. Without any MTRR the default type applies
+    // A large page has a single memory type, so combine the types of every
+    // MTRR it touches. Unless one of them covers the whole page, part of it
+    // may get the default type, so combine that too
     //
     memoryType = MTRR_TYPE_MAX;
-    hugePageEnd = HugePageAddress + _1GB - 1;
+    covered = FALSE;
+    pageEnd = PageAddress + PageSize - 1;
     for (i = 0; i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0]); i++)
     {
         //
         // Skip disabled ranges, and ranges that don't touch this page
         //
         if ((VpData->MtrrData[i].Enabled == FALSE) ||
-            (VpData->MtrrData[i].PhysicalAddressMax < HugePageAddress) ||
-            (VpData->MtrrData[i].PhysicalAddressMin > hugePageEnd))
+            (VpData->MtrrData[i].PhysicalAddressMax < PageAddress) ||
+            (VpData->MtrrData[i].PhysicalAddressMin > pageEnd))
         {
             continue;
         }
 
-        //
-        // Partial or conflicting ranges mix the types within the page, so
-        // use UC, which is always safe
-        //
-        if ((VpData->MtrrData[i].PhysicalAddressMin > HugePageAddress) ||
-            (VpData->MtrrData[i].PhysicalAddressMax < hugePageEnd) ||
-            ((memoryType != MTRR_TYPE_MAX) &&
-             (memoryType != VpData->MtrrData[i].Type)))
+        if ((VpData->MtrrData[i].PhysicalAddressMin <= PageAddress) &&
+            (VpData->MtrrData[i].PhysicalAddressMax >= pageEnd))
         {
-            return MTRR_TYPE_UC;
+            covered = TRUE;
         }
-        memoryType = VpData->MtrrData[i].Type;
+        memoryType = ShvUtilMtrrCombineMemoryTypes(memoryType,
+                                                   VpData->MtrrData[i].Type);
     }
 
-    //
-    // Return the single MTRR type that covers the page, or the default one
-    //
-    return (memoryType != MTRR_TYPE_MAX) ? memoryType : DefaultMemoryType;
+    if (covered == FALSE)
+    {
+        memoryType = ShvUtilMtrrCombineMemoryTypes(memoryType,
+                                                   VpData->MtrrDefaultType);
+    }
+    return memoryType;
 }
-

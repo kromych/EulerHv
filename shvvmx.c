@@ -34,8 +34,6 @@ ShvVmxEptInitialize (
     INT32 cpuInfo[4];
     UINT32 physicalAddressBits;
     UINT32 pml4Count;
-    UINT64 mtrrDefault;
-    UINT32 defaultMemoryType;
 
     //
     // Fill out the EPML4E which covers the first 512GB of RAM
@@ -82,9 +80,9 @@ ShvVmxEptInitialize (
         for (j = 0; j < PDE_ENTRY_COUNT; j++)
         {
             VpData->Epde[i][j].PageFrameNumber = (i * 512) + j;
-            VpData->Epde[i][j].Type = ShvUtilMtrrAdjustEffectiveMemoryType(VpData,
-                                                                           VpData->Epde[i][j].PageFrameNumber * _2MB,
-                                                                           MTRR_TYPE_WB);
+            VpData->Epde[i][j].Type = ShvUtilMtrrGetMemoryType(VpData,
+                                                               (UINT64)VpData->Epde[i][j].PageFrameNumber * _2MB,
+                                                               _2MB);
         }
     }
 
@@ -120,15 +118,6 @@ ShvVmxEptInitialize (
     }
 
     //
-    // The default MTRR type applies outside the variable MTRRs. With MTRRs
-    // disabled all memory is UC
-    //
-    mtrrDefault = __readmsr(MTRR_MSR_DEFAULT);
-    defaultMemoryType = (mtrrDefault & MTRR_DEFAULT_ENABLE) ?
-                        (UINT32)(mtrrDefault & MTRR_DEFAULT_TYPE_MASK) :
-                        MTRR_TYPE_UC;
-
-    //
     // Fill out a RWX Huge PDPTE
     //
     tempHugePdpte.AsUlonglong = 0;
@@ -149,9 +138,9 @@ ShvVmxEptInitialize (
         {
             VpData->EpdptHuge[i - 1][j].AsUlonglong = tempHugePdpte.AsUlonglong;
             VpData->EpdptHuge[i - 1][j].PageFrameNumber = (i * PDPTE_ENTRY_COUNT) + j;
-            VpData->EpdptHuge[i - 1][j].Type = ShvUtilMtrrGetHugePageMemoryType(VpData,
-                                                                                (UINT64)VpData->EpdptHuge[i - 1][j].PageFrameNumber * _1GB,
-                                                                                defaultMemoryType);
+            VpData->EpdptHuge[i - 1][j].Type = ShvUtilMtrrGetMemoryType(VpData,
+                                                                        (UINT64)VpData->EpdptHuge[i - 1][j].PageFrameNumber * _1GB,
+                                                                        _1GB);
         }
     }
 }

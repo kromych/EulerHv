@@ -144,17 +144,10 @@ ShvUtilMtrrInitialize (
     );
 
 UINT32
-ShvUtilMtrrAdjustEffectiveMemoryType (
+ShvUtilMtrrGetMemoryType (
     _In_ PSHV_VP_DATA VpData,
-    _In_ UINT64 LargePageAddress,
-    _In_ UINT32 CandidateMemoryType
-    );
-
-UINT32
-ShvUtilMtrrGetHugePageMemoryType (
-    _In_ PSHV_VP_DATA VpData,
-    _In_ UINT64 HugePageAddress,
-    _In_ UINT32 DefaultMemoryType
+    _In_ UINT64 PageAddress,
+    _In_ UINT64 PageSize
     );
 
 PSHV_VP_DATA
