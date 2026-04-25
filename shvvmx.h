@@ -36,6 +36,18 @@ ShvVmxHypercall (
     _Inout_ PCONTEXT Context
     );
 
+VOID
+ShvVmxInvept (
+    _In_ UINT64 Type,
+    _In_ UINT64* Descriptor
+    );
+
+VOID
+ShvVmxInvvpid (
+    _In_ UINT64 Type,
+    _In_ UINT64* Descriptor
+    );
+
 INT32
 ShvVmxLaunch (
     _In_ PSHV_VP_DATA VpData

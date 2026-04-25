@@ -60,8 +60,43 @@ ShvVmxLaunch (
     )
 {
     INT32 failureCode;
+    UINT64 capabilities;
+    UINT64 descriptor[2];
 
-    UNREFERENCED_PARAMETER(VpData);
+    //
+    // VMXON and VMXOFF keep cached mappings, and VPID 1 and the EPTP may be
+    // left over from an earlier load or another hypervisor. Invalidate them
+    // so that the guest does not start on stale translations
+    //
+    capabilities = VpData->MsrData[MSR_IA32_VMX_EPT_VPID_CAP - MSR_IA32_VMX_BASIC].QuadPart;
+    if (VpData->EptControls != 0)
+    {
+        descriptor[0] = ShvVmxRead(EPT_POINTER);
+        descriptor[1] = 0;
+        if ((capabilities & (VMX_EPT_INVEPT_BIT | VMX_EPT_EXTENT_CONTEXT_BIT)) ==
+            (VMX_EPT_INVEPT_BIT | VMX_EPT_EXTENT_CONTEXT_BIT))
+        {
+            ShvVmxInvept(VMX_INVEPT_SINGLE_CONTEXT, descriptor);
+        }
+        else if ((capabilities & (VMX_EPT_INVEPT_BIT | VMX_EPT_EXTENT_GLOBAL_BIT)) ==
+                 (VMX_EPT_INVEPT_BIT | VMX_EPT_EXTENT_GLOBAL_BIT))
+        {
+            ShvVmxInvept(VMX_INVEPT_ALL_CONTEXT, descriptor);
+        }
+
+        descriptor[0] = ShvVmxRead(VIRTUAL_PROCESSOR_ID);
+        descriptor[1] = 0;
+        if ((capabilities & (VMX_VPID_INVVPID_BIT | VMX_VPID_EXTENT_SINGLE_CONTEXT_BIT)) ==
+            (VMX_VPID_INVVPID_BIT | VMX_VPID_EXTENT_SINGLE_CONTEXT_BIT))
+        {
+            ShvVmxInvvpid(VMX_INVVPID_SINGLE_CONTEXT, descriptor);
+        }
+        else if ((capabilities & (VMX_VPID_INVVPID_BIT | VMX_VPID_EXTENT_ALL_CONTEXT_BIT)) ==
+                 (VMX_VPID_INVVPID_BIT | VMX_VPID_EXTENT_ALL_CONTEXT_BIT))
+        {
+            ShvVmxInvvpid(VMX_INVVPID_ALL_CONTEXT, descriptor);
+        }
+    }
 
     //
     // Launch the VMCS, based on the guest data that was loaded into the

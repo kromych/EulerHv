@@ -274,6 +274,14 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define VMX_EPT_AD_BIT                          (1ULL << 21)
 #define VMX_EPT_EXTENT_CONTEXT_BIT              (1ULL << 25)
 #define VMX_EPT_EXTENT_GLOBAL_BIT               (1ULL << 26)
+#define VMX_VPID_INVVPID_BIT                    (1ULL << 32)
+#define VMX_VPID_EXTENT_SINGLE_CONTEXT_BIT      (1ULL << 41)
+#define VMX_VPID_EXTENT_ALL_CONTEXT_BIT         (1ULL << 42)
+
+#define VMX_INVEPT_SINGLE_CONTEXT               1
+#define VMX_INVEPT_ALL_CONTEXT                  2
+#define VMX_INVVPID_SINGLE_CONTEXT              1
+#define VMX_INVVPID_ALL_CONTEXT                 2
 
 /* MSRs & bits used for VMX enabling */
 #define MSR_IA32_VMX_BASIC                      0x480

@@ -76,4 +76,21 @@
     ret
     ShvVmxHypercall ENDP
 
+    ;
+    ; VOID ShvVmxInvept (_In_ UINT64 Type, _In_ UINT64* Descriptor)
+    ; VOID ShvVmxInvvpid (_In_ UINT64 Type, _In_ UINT64* Descriptor)
+    ;
+    ; Issue INVEPT and INVVPID, which have no intrinsics. The 128-bit
+    ; descriptor holds the EPTP, or the VPID and a linear address
+    ;
+    ShvVmxInvept PROC
+    invept  rcx, oword ptr [rdx]
+    ret
+    ShvVmxInvept ENDP
+
+    ShvVmxInvvpid PROC
+    invvpid rcx, oword ptr [rdx]
+    ret
+    ShvVmxInvvpid ENDP
+
     end
