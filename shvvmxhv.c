@@ -705,6 +705,12 @@ ShvVmxEntryHandler (
         // Turn off VMX root mode on this logical processor. We're done here.
         //
         __vmx_off();
+
+        //
+        // The OS runs on VPID 0 again, whose mappings the guest never
+        // invalidated
+        //
+        ShvUtilFlushTlb();
     }
     else
     {

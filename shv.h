@@ -139,6 +139,11 @@ ShvUtilAdjustMsr (
     );
 
 VOID
+ShvUtilFlushTlb (
+    VOID
+    );
+
+VOID
 ShvUtilMtrrInitialize (
     _In_ PSHV_VP_DATA VpData
     );

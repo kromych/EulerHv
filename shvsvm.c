@@ -709,6 +709,12 @@ ShvSvmEntryHandler (
         ShvSvmLeaveRootMode();
         __writedr(7, vmcb->Dr7);
 
+        //
+        // The OS runs on ASID 0 again, whose mappings the guest never
+        // invalidated
+        //
+        ShvUtilFlushTlb();
+
         Context->Rsp = guestContext.GuestRsp;
         Context->Rip = (UINT64)guestContext.GuestRip;
         Context->EFlags = (UINT32)guestContext.GuestEFlags;

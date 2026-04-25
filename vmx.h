@@ -31,6 +31,8 @@ Environment:
 #define DEBUG_CTL_BTF           (1ULL << 1)
 #define DR6_BS                  (1ULL << 14)
 #define RPL_MASK                3
+#define CR4_PGE                 (1ULL << 7)
+#define CPUID_FEATURES_EBX_INVPCID (1UL << 10)
 #define MTRR_TYPE_UC            0
 #define MTRR_TYPE_USWC          1
 #define MTRR_TYPE_WT            4

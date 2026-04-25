@@ -105,6 +105,40 @@ ShvUtilAdjustMsr (
 }
 
 VOID
+ShvUtilFlushTlb (
+    VOID
+    )
+{
+    INT32 cpuInfo[4];
+    UINT64 descriptor[2];
+    UINT64 cr4;
+
+    //
+    // The guest's INVLPG, INVPCID and MOV CR3 only invalidated its own VPID
+    // or ASID, so the mappings the OS cached before the load can be stale.
+    // Invalidate every PCID, including global pages, before it runs again
+    //
+    __cpuid(cpuInfo, 0);
+    if ((UINT32)cpuInfo[0] >= 7)
+    {
+        __cpuidex(cpuInfo, 7, 0);
+        if ((cpuInfo[1] & CPUID_FEATURES_EBX_INVPCID) != 0)
+        {
+            descriptor[0] = descriptor[1] = 0;
+            _invpcid(2, descriptor);
+            return;
+        }
+    }
+
+    //
+    // Without INVPCID, changing CR4.PGE invalidates every PCID as well
+    //
+    cr4 = __readcr4();
+    __writecr4(cr4 ^ CR4_PGE);
+    __writecr4(cr4);
+}
+
+VOID
 ShvUtilMtrrInitialize (
     _In_ PSHV_VP_DATA VpData
     )
