@@ -217,10 +217,10 @@ ShvOsPrepareProcessor (
     TssEntry->MustBeZero = 0;
 
     //
-    // Load the new GDT
+    // Load the new GDT, keeping any entries of the old one past the TSS
     //
     Gdtr.Base = NewGdt;
-    Gdtr.Limit = KGDT64_SYS_TSS + sizeof(*TssEntry) - 1;
+    Gdtr.Limit = (UINT16)MAX(Gdtr.Limit, KGDT64_SYS_TSS + sizeof(*TssEntry) - 1);
     _lgdt(&Gdtr.Limit);
 
     //
