@@ -149,6 +149,18 @@ ShvUtilMtrrInitialize (
     MTRR_VARIABLE_MASK mtrrMask;
     UINT64 mtrrDefault;
     unsigned long bit;
+    INT32 cpuInfo[4];
+
+    //
+    // Without MTRRs only the PAT decides the memory type, which WB in the
+    // second level tables leaves in effect. Their MSRs would raise #GP
+    //
+    __cpuid(cpuInfo, 1);
+    if ((cpuInfo[3] & CPUID_FEATURES_EDX_MTRR) == 0)
+    {
+        VpData->MtrrDefaultType = MTRR_TYPE_WB;
+        return;
+    }
 
     //
     // The default type applies outside the variable MTRRs. With the MTRRs

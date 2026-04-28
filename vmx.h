@@ -33,6 +33,7 @@ Environment:
 #define RPL_MASK                3
 #define CR4_PGE                 (1ULL << 7)
 #define CPUID_FEATURES_EBX_INVPCID (1UL << 10)
+#define CPUID_FEATURES_EDX_MTRR (1UL << 12)
 #define MTRR_TYPE_UC            0
 #define MTRR_TYPE_USWC          1
 #define MTRR_TYPE_WT            4
