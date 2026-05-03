@@ -33,6 +33,7 @@ Environment:
 
 #define _1GB                        (1 * 1024 * 1024 * 1024)
 #define _2MB                        (2 * 1024 * 1024)
+#define _1MB                        (1 * 1024 * 1024)
 
 #define SHV_STACK_CANARY            0x6B63617453766853 // 'kcatSvhS'
 
@@ -96,6 +97,13 @@ typedef struct _SHV_VP_DATA
             // disabled
             //
             UINT32 MtrrDefaultType;
+
+            //
+            // The types of the fixed-range MTRRs for each 4KB page below 1MB,
+            // which take precedence over the variable MTRRs there
+            //
+            UINT8 MtrrFixedEnabled;
+            UINT8 MtrrFixedTypes[_1MB / PAGE_SIZE];
             UINT64 VmxOnPhysicalAddress;
             UINT64 VmcsPhysicalAddress;
             UINT64 MsrBitmapPhysicalAddress;
@@ -210,10 +218,15 @@ typedef struct _SHV_VP_DATA
     };
 
     //
-    // The host FS, GS, TR, LDTR and system call MSRs, which #VMEXIT does not
-    // restore
+    // SVM saves the host FS, GS, TR, LDTR and system call MSRs, which #VMEXIT
+    // does not restore. VT-x maps the first 2MB with 4KB EPT pages, as the
+    // fixed-range MTRRs type memory at that size
     //
-    DECLSPEC_ALIGN(PAGE_SIZE) SVM_VMCB HostVmcb;
+    union
+    {
+        DECLSPEC_ALIGN(PAGE_SIZE) SVM_VMCB HostVmcb;
+        DECLSPEC_ALIGN(PAGE_SIZE) VMX_PTE EptLow[PTE_ENTRY_COUNT];
+    };
 } SHV_VP_DATA, *PSHV_VP_DATA;
 
 C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 7 + SHV_EPT_PML4E_COUNT - 1) * PAGE_SIZE));

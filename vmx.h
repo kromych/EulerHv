@@ -65,7 +65,12 @@ Environment:
 #define MTRR_MSR_CAPABILITIES   0x0fe
 #define MTRR_MSR_DEFAULT        0x2ff
 #define MTRR_DEFAULT_TYPE_MASK  0xff
+#define MTRR_DEFAULT_FIXED_ENABLE (1ULL << 10)
 #define MTRR_DEFAULT_ENABLE     (1ULL << 11)
+#define MTRR_MSR_FIX64K_00000   0x250
+#define MTRR_MSR_FIX16K_80000   0x258
+#define MTRR_MSR_FIX16K_A0000   0x259
+#define MTRR_MSR_FIX4K_C0000    0x268
 #define MTRR_MSR_VARIABLE_BASE  0x200
 #define MTRR_MSR_VARIABLE_MASK  (MTRR_MSR_VARIABLE_BASE+1)
 #define MTRR_PAGE_SIZE          4096
@@ -691,11 +696,38 @@ typedef struct _VMX_LARGE_PDE
     };
 } VMX_LARGE_PDE, *PVMX_LARGE_PDE;
 
+typedef struct _VMX_PTE
+{
+    union
+    {
+        struct
+        {
+            UINT64 Read : 1;
+            UINT64 Write : 1;
+            UINT64 Execute : 1;
+            UINT64 Type : 3;
+            UINT64 IgnorePat : 1;
+            UINT64 Ignored : 1;
+            UINT64 Accessed : 1;
+            UINT64 Dirty : 1;
+            UINT64 UserModeExecute : 1;
+            UINT64 SoftwareUse : 1;
+            UINT64 PageFrameNumber : 36;
+            UINT64 ReservedHigh : 4;
+            UINT64 SoftwareUseHigh : 11;
+            UINT64 SupressVme : 1;
+        };
+        UINT64 AsUlonglong;
+    };
+} VMX_PTE, *PVMX_PTE;
+
 static_assert(sizeof(VMX_EPTP) == sizeof(UINT64), "EPTP Size Mismatch");
 static_assert(sizeof(VMX_EPML4E) == sizeof(UINT64), "EPML4E Size Mismatch");
 static_assert(sizeof(VMX_PDPTE) == sizeof(UINT64), "EPDPTE Size Mismatch");
+static_assert(sizeof(VMX_PTE) == sizeof(UINT64), "EPTE Size Mismatch");
 
 #define PML4E_ENTRY_COUNT   512
 #define PDPTE_ENTRY_COUNT   512
 #define PDE_ENTRY_COUNT     512
+#define PTE_ENTRY_COUNT     512
 

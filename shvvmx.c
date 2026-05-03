@@ -31,6 +31,7 @@ ShvVmxEptInitialize (
     VMX_PDPTE tempEpdpte;
     VMX_LARGE_PDE tempEpde;
     VMX_HUGE_PDPTE tempHugePdpte;
+    VMX_PTE tempEpte;
     INT32 cpuInfo[4];
     UINT32 physicalAddressBits;
     UINT32 pml4Count;
@@ -85,6 +86,24 @@ ShvVmxEptInitialize (
                                                                _2MB);
         }
     }
+
+    //
+    // The fixed-range MTRRs type the first 1MB in ranges as small as 4KB, such
+    // as the UC legacy video memory, so map the first 2MB with 4KB pages. A
+    // PDE that points to a page table has the layout of a PDPTE
+    //
+    tempEpte.AsUlonglong = 0;
+    tempEpte.Read = tempEpte.Write = tempEpte.Execute = 1;
+    for (i = 0; i < PTE_ENTRY_COUNT; i++)
+    {
+        VpData->EptLow[i].AsUlonglong = tempEpte.AsUlonglong;
+        VpData->EptLow[i].PageFrameNumber = i;
+        VpData->EptLow[i].Type = ShvUtilMtrrGetMemoryType(VpData,
+                                                          (UINT64)i * PAGE_SIZE,
+                                                          PAGE_SIZE);
+    }
+    tempEpdpte.PageFrameNumber = ShvOsGetPhysicalAddress(&VpData->EptLow) / PAGE_SIZE;
+    VpData->Epde[0][0].AsUlonglong = tempEpdpte.AsUlonglong;
 
     //
     // RAM or MMIO can live above 512GB. With 1GB EPT pages map it too, at one

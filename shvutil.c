@@ -104,6 +104,32 @@ ShvUtilAdjustMsr (
     return DesiredValue;
 }
 
+//
+// The fixed-range MTRRs, and the 4KB pages below 1MB they cover. The first
+// covers 64KB per type, the next two 16KB and the rest 4KB
+//
+typedef struct _SHV_MTRR_FIXED_RANGE
+{
+    UINT32 Msr;
+    UINT32 FirstPage;
+    UINT32 PagesPerType;
+} SHV_MTRR_FIXED_RANGE;
+
+static const SHV_MTRR_FIXED_RANGE ShvUtilMtrrFixedRanges[] =
+{
+    { MTRR_MSR_FIX64K_00000, 0x00, 16 },
+    { MTRR_MSR_FIX16K_80000, 0x80, 4 },
+    { MTRR_MSR_FIX16K_A0000, 0xA0, 4 },
+    { MTRR_MSR_FIX4K_C0000 + 0, 0xC0, 1 },
+    { MTRR_MSR_FIX4K_C0000 + 1, 0xC8, 1 },
+    { MTRR_MSR_FIX4K_C0000 + 2, 0xD0, 1 },
+    { MTRR_MSR_FIX4K_C0000 + 3, 0xD8, 1 },
+    { MTRR_MSR_FIX4K_C0000 + 4, 0xE0, 1 },
+    { MTRR_MSR_FIX4K_C0000 + 5, 0xE8, 1 },
+    { MTRR_MSR_FIX4K_C0000 + 6, 0xF0, 1 },
+    { MTRR_MSR_FIX4K_C0000 + 7, 0xF8, 1 },
+};
+
 VOID
 ShvUtilFlushTlb (
     VOID
@@ -143,11 +169,12 @@ ShvUtilMtrrInitialize (
     _In_ PSHV_VP_DATA VpData
     )
 {
-    UINT32 i;
+    UINT32 i, j;
     MTRR_CAPABILITIES mtrrCapabilities;
     MTRR_VARIABLE_BASE mtrrBase;
     MTRR_VARIABLE_MASK mtrrMask;
     UINT64 mtrrDefault;
+    UINT64 fixedTypes;
     unsigned long bit;
     INT32 cpuInfo[4];
 
@@ -178,6 +205,25 @@ ShvUtilMtrrInitialize (
     // Read the capabilities mask
     //
     mtrrCapabilities.AsUlonglong = __readmsr(MTRR_MSR_CAPABILITIES);
+
+    //
+    // Each fixed-range MTRR holds the types of 8 consecutive ranges, one per
+    // byte. Spread them over the 4KB pages below 1MB
+    //
+    if ((mtrrCapabilities.FixedSupported != FALSE) &&
+        ((mtrrDefault & MTRR_DEFAULT_FIXED_ENABLE) != 0))
+    {
+        for (i = 0; i < sizeof(ShvUtilMtrrFixedRanges) / sizeof(ShvUtilMtrrFixedRanges[0]); i++)
+        {
+            fixedTypes = __readmsr(ShvUtilMtrrFixedRanges[i].Msr);
+            for (j = 0; j < 8 * ShvUtilMtrrFixedRanges[i].PagesPerType; j++)
+            {
+                VpData->MtrrFixedTypes[ShvUtilMtrrFixedRanges[i].FirstPage + j] =
+                    (UINT8)(fixedTypes >> ((j / ShvUtilMtrrFixedRanges[i].PagesPerType) * 8));
+            }
+        }
+        VpData->MtrrFixedEnabled = TRUE;
+    }
 
     //
     // Iterate over each variable MTRR, up to as many as we can track
@@ -265,6 +311,26 @@ ShvUtilMtrrGetMemoryType (
     memoryType = MTRR_TYPE_MAX;
     covered = FALSE;
     pageEnd = PageAddress + PageSize - 1;
+
+    //
+    // Below 1MB the fixed-range MTRRs take precedence, so combine their types
+    // and look up the rest of the page in the variable MTRRs
+    //
+    if ((VpData->MtrrFixedEnabled != FALSE) && (PageAddress < _1MB))
+    {
+        for (i = (UINT32)(PageAddress / PAGE_SIZE);
+             (i < sizeof(VpData->MtrrFixedTypes)) && (i <= pageEnd / PAGE_SIZE);
+             i++)
+        {
+            memoryType = ShvUtilMtrrCombineMemoryTypes(memoryType,
+                                                       VpData->MtrrFixedTypes[i]);
+        }
+        if (pageEnd < _1MB)
+        {
+            return memoryType;
+        }
+        PageAddress = _1MB;
+    }
     for (i = 0; i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0]); i++)
     {
         //
