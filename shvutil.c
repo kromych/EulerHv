@@ -205,8 +205,14 @@ ShvUtilMtrrInitialize (
                                                      MTRR_PAGE_SIZE;
 
             //
-            // Compute the length
+            // Compute the length. A mask without bits matches every address
             //
+            if (mtrrMask.PhysMask == 0)
+            {
+                VpData->MtrrData[i].PhysicalAddressMin = 0;
+                VpData->MtrrData[i].PhysicalAddressMax = ~0ULL;
+                continue;
+            }
             _BitScanForward64(&bit, mtrrMask.PhysMask * MTRR_PAGE_SIZE);
             VpData->MtrrData[i].PhysicalAddressMax = VpData->MtrrData[i].
                                                      PhysicalAddressMin +
