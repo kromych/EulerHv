@@ -665,6 +665,16 @@ ShvSvmEntryHandler (
     vmcb->TlbControl = SVM_TLB_CONTROL_DO_NOTHING;
 
     //
+    // Nothing changed the VMCB since VMRUN loaded it, so let the next VMRUN
+    // skip reloading the cached groups. The handlers clear the bits of the
+    // groups they change
+    //
+    if ((vpData->SvmFeatures & CPUID_SVM_FEATURES_EDX_VMCB_CLEAN) != 0)
+    {
+        vmcb->VmcbCleanBits = SVM_VMCB_CLEAN_ALL;
+    }
+
+    //
     // Count the exit
     //
     index = ShvSvmExitIndex(guestContext.ExitReason);
@@ -1145,6 +1155,7 @@ ShvSvmHandleExit (
             ((__readmsr(MSR_DEBUG_CTL) & DEBUG_CTL_BTF) == 0))
         {
             vmcb->Dr6 |= DR6_BS;
+            vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_DRX;
             vmcb->EventInj = SVM_EVENTINJ_VALID |
                              SVM_EVENTINJ_TYPE_EXCEPTION |
                              INTR_INFO_VECTOR_DB;

@@ -261,6 +261,7 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 #define SVM_VMCB_CLEAN_CR2                      (1UL << 9)
 #define SVM_VMCB_CLEAN_LBR                      (1UL << 10)
 #define SVM_VMCB_CLEAN_AVIC                     (1UL << 11)
+#define SVM_VMCB_CLEAN_ALL                      0xFFF
 
 //
 // SVM exit codes (VMCB offset 0x070). The codes match the intercept bit
