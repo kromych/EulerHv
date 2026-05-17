@@ -535,9 +535,10 @@ ShvVmxProbe (
 
     //
     // Both the hardware and the firmware are allowing us to enter VMX mode.
-    // Initialize all the VMX-related MSRs by reading their value
+    // Initialize the VMX-related MSRs by reading their value, up to the VMCS
+    // enumeration, which every processor has
     //
-    for (i = 0; i < sizeof(VpData->MsrData) / sizeof(VpData->MsrData[0]); i++)
+    for (i = 0; i <= MSR_IA32_VMX_VMCS_ENUM - MSR_IA32_VMX_BASIC; i++)
     {
         VpData->MsrData[i].QuadPart = __readmsr(MSR_IA32_VMX_BASIC + i);
     }
@@ -564,6 +565,32 @@ ShvVmxProbe (
     if (((VpData->MsrData[0].QuadPart) & VMX_BASIC_DEFAULT1_ZERO) == 0)
     {
         return FALSE;
+    }
+
+    //
+    // The others exist only with the features they describe. The secondary
+    // controls need the primary control that activates them, and the EPT and
+    // VPID capabilities need EPT or VPID. The true controls exist, as checked
+    // above. Missing ones stay zero, which allows no controls
+    //
+    if ((VpData->MsrData[MSR_IA32_VMX_PROCBASED_CTLS - MSR_IA32_VMX_BASIC].HighPart &
+         CPU_BASED_ACTIVATE_SECONDARY_CONTROLS) != 0)
+    {
+        VpData->MsrData[MSR_IA32_VMX_PROCBASED_CTLS2 - MSR_IA32_VMX_BASIC].QuadPart =
+            __readmsr(MSR_IA32_VMX_PROCBASED_CTLS2);
+
+        if ((VpData->MsrData[MSR_IA32_VMX_PROCBASED_CTLS2 - MSR_IA32_VMX_BASIC].HighPart &
+             (SECONDARY_EXEC_ENABLE_EPT | SECONDARY_EXEC_ENABLE_VPID)) != 0)
+        {
+            VpData->MsrData[MSR_IA32_VMX_EPT_VPID_CAP - MSR_IA32_VMX_BASIC].QuadPart =
+                __readmsr(MSR_IA32_VMX_EPT_VPID_CAP);
+        }
+    }
+    for (i = MSR_IA32_VMX_TRUE_PINBASED_CTLS - MSR_IA32_VMX_BASIC;
+         i < sizeof(VpData->MsrData) / sizeof(VpData->MsrData[0]);
+         i++)
+    {
+        VpData->MsrData[i].QuadPart = __readmsr(MSR_IA32_VMX_BASIC + i);
     }
 
     //
