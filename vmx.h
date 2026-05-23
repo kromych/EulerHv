@@ -328,7 +328,8 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define HYPERV_SYNTHETIC_MSR_MIN                0x40000000
 #define HYPERV_SYNTHETIC_MSR_MAX                0x400000ff
 
-enum vmcs_field {
+typedef enum _VmcsField
+{
     VIRTUAL_PROCESSOR_ID            = 0x00000000,
     POSTED_INTR_NOTIFICATION_VECTOR = 0x00000002,
     EPTP_INDEX                      = 0x00000004,
@@ -469,7 +470,7 @@ enum vmcs_field {
     HOST_SYSENTER_EIP               = 0x00006c12,
     HOST_RSP                        = 0x00006c14,
     HOST_RIP                        = 0x00006c16,
-};
+} VmcsField;
 
 #define EXIT_REASON_EXCEPTION_NMI       0
 #define EXIT_REASON_EXTERNAL_INTERRUPT  1
