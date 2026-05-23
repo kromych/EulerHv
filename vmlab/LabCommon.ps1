@@ -431,8 +431,11 @@ function Show-LabResult {
         @{ Name = 'SVM bit unchanged while loaded';                     Pass = (& $get 'loaded.svm') -eq (& $get 'before.svm') }
         @{ Name = 'VM-Exit counters readable while loaded';             Pass = ((& $get 'loaded.exits.processors') -match '^[1-9]') -and
                                                                                ((& $get 'loaded.exits.total') -match '^[1-9]') }
+        @{ Name = 'Web browser started while loaded';                   Pass = (& $get 'browser.loaded') -match '^[1-9]' }
         @{ Name = 'sc stop simplevisor succeeded';                      Pass = (& $get 'unload.exit') -eq '0' }
         @{ Name = 'SimpleVisor not detected after unloading';           Pass = (& $get 'after.simplevisor') -eq '0' }
+        @{ Name = 'Web browser kept running after unloading';           Pass = (& $get 'browser.after') -match '^[1-9]' }
+        @{ Name = 'Web browser stopped';                                Pass = (& $get 'browser.stopped') -eq '0' }
     )
     if ($KdCheck) {
         $checks = @(@{ Name = 'kd broke in over the serial pipe, and resumed'; Pass = $KdCheck.Connected -and $KdCheck.Resumed }) + $checks
@@ -457,6 +460,9 @@ function Show-LabResult {
     }
     if ((& $get 'load.exit') -ne '0') {
         Write-Host "sc start: $(& $get 'load.output')"
+    }
+    if ($Result.ContainsKey('browser.output')) {
+        Write-Host "Web browser: $(& $get 'browser.output')"
     }
     if (((& $get 'before.vmx') -ne '1') -and ((& $get 'before.svm') -ne '1')) {
         Write-Warning "The guest has neither VMX nor SVM, so SimpleVisor cannot load in it. $NoVmxHint"
