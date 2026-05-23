@@ -325,6 +325,14 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define HYPERV_CPUID_MIN                        0x40000005
 #define HYPERV_CPUID_MAX                        0x4000ffff
 
+//
+// The CPUID 40000004h EAX bits recommending hypercalls to switch address
+// spaces and to flush the TLB of this processor and of others
+//
+#define HYPERV_ENLIGHTMENT_ADDRESS_SPACE_SWITCH 0x00000001
+#define HYPERV_ENLIGHTMENT_LOCAL_TLB_FLUSH      0x00000002
+#define HYPERV_ENLIGHTMENT_REMOTE_TLB_FLUSH     0x00000004
+
 #define HYPERV_SYNTHETIC_MSR_MIN                0x40000000
 #define HYPERV_SYNTHETIC_MSR_MAX                0x400000ff
 

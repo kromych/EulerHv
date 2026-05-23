@@ -952,6 +952,19 @@ ShvSvmHandleCpuid (
         //
         cpu_info[2] &= ~(1 << 5);
     }
+    else if (((UINT32)VpState->VpRegs->Rax == HYPERV_CPUID_ENLIGHTMENT_INFO) &&
+             (VpState->VpData->UnderlyingHypervisorIsHyperV != FALSE))
+    {
+        //
+        // The hypercalls would switch and flush the address spaces of
+        // SimpleVisor, rather than those of the guest on ASID 1. Have the
+        // guest use MOV CR3, INVLPG and IPIs instead. Windows reads this at
+        // boot, so only an OS that starts after SimpleVisor follows it
+        //
+        cpu_info[0] &= ~(HYPERV_ENLIGHTMENT_ADDRESS_SPACE_SWITCH |
+                         HYPERV_ENLIGHTMENT_LOCAL_TLB_FLUSH |
+                         HYPERV_ENLIGHTMENT_REMOTE_TLB_FLUSH);
+    }
     else if (((UINT32)VpState->VpRegs->Rax == HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS) &&
              (VpState->VpData->UnderlyingHypervisor == FALSE))
     {
