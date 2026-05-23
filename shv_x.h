@@ -43,6 +43,19 @@ Environment:
 #define SHV_EXIT_REASON_COUNT       80
 
 //
+// Hyper-V TLB flush hypercalls counted when forwarded, and the index of their
+// counter
+//
+typedef enum _ShvTlbHypercall
+{
+    ShvTlbHypercallFlushSpace,
+    ShvTlbHypercallFlushList,
+    ShvTlbHypercallFlushSpaceEx,
+    ShvTlbHypercallFlushListEx,
+    ShvTlbHypercallCount
+} ShvTlbHypercall;
+
+//
 // EPT PML4 entries SimpleVisor can populate. The first maps the low 512GB with
 // 2MB pages and the rest use 1GB pages when supported, for up to 8TB
 //
@@ -159,6 +172,11 @@ typedef struct _SHV_VP_DATA
             // VM-Exits per exit reason, reported to the debugger on unload
             //
             UINT64 ExitCounts[SHV_EXIT_REASON_COUNT];
+
+            //
+            // TLB flush hypercalls forwarded to Hyper-V, reported likewise
+            //
+            UINT64 TlbHypercallCounts[ShvTlbHypercallCount];
 
             //
             // The VM-Exit SimpleVisor could not handle, for the debugger

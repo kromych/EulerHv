@@ -328,6 +328,16 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define HYPERV_SYNTHETIC_MSR_MIN                0x40000000
 #define HYPERV_SYNTHETIC_MSR_MAX                0x400000ff
 
+#define HYPERV_HYPERCALL_CODE_MASK              0xffff
+
+typedef enum _HvCallCode
+{
+    HvCallFlushVirtualAddressSpace          = 0x0002,
+    HvCallFlushVirtualAddressList           = 0x0003,
+    HvCallFlushVirtualAddressSpaceEx        = 0x0013,
+    HvCallFlushVirtualAddressListEx         = 0x0014,
+} HvCallCode;
+
 typedef enum _VmcsField
 {
     VIRTUAL_PROCESSOR_ID            = 0x00000000,

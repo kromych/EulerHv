@@ -76,6 +76,22 @@ ShvUnload (
     }
 
     //
+    // Report the TLB flush hypercalls forwarded to Hyper-V
+    //
+    if ((callbackContext.TlbHypercallCounts[ShvTlbHypercallFlushSpace] |
+         callbackContext.TlbHypercallCounts[ShvTlbHypercallFlushList] |
+         callbackContext.TlbHypercallCounts[ShvTlbHypercallFlushSpaceEx] |
+         callbackContext.TlbHypercallCounts[ShvTlbHypercallFlushListEx]) != 0)
+    {
+        ShvOsDebugPrint("The SHV forwarded TLB flush hypercalls: "
+                        "space %llu, list %llu, space ex %llu, list ex %llu\n",
+                        (UINT64)callbackContext.TlbHypercallCounts[ShvTlbHypercallFlushSpace],
+                        (UINT64)callbackContext.TlbHypercallCounts[ShvTlbHypercallFlushList],
+                        (UINT64)callbackContext.TlbHypercallCounts[ShvTlbHypercallFlushSpaceEx],
+                        (UINT64)callbackContext.TlbHypercallCounts[ShvTlbHypercallFlushListEx]);
+    }
+
+    //
     // Indicate unload
     //
     ShvOsDebugPrint("The SHV has been uninstalled.\n");

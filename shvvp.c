@@ -313,7 +313,8 @@ ShvVpUnloadCallback (
 
     //
     // Send the magic shutdown instruction sequence. It will return in EAX:EBX
-    // the VP data for the current CPU. Add up its exit counters and free it.
+    // the VP data for the current CPU. Add up its exit and hypercall counters
+    // and free it.
     //
     cpuInfo[0] = cpuInfo[1] = 0;
     __cpuidex(cpuInfo, 0x41414141, 0x42424242);
@@ -331,6 +332,10 @@ ShvVpUnloadCallback (
         for (i = 0; i < SHV_EXIT_REASON_COUNT; i++)
         {
             _InterlockedExchangeAdd64(&Context->ExitCounts[i], (INT64)vpData->ExitCounts[i]);
+        }
+        for (i = 0; i < ShvTlbHypercallCount; i++)
+        {
+            _InterlockedExchangeAdd64(&Context->TlbHypercallCounts[i], (INT64)vpData->TlbHypercallCounts[i]);
         }
         ShvOsFreeContiguousAlignedMemory(vpData, sizeof(*vpData));
     }

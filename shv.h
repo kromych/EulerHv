@@ -51,6 +51,7 @@ typedef struct _SHV_CALLBACK_CONTEXT
     INT32 FailedCpu;
     INT32 FailureStatus;
     volatile INT64 ExitCounts[SHV_EXIT_REASON_COUNT];
+    volatile INT64 TlbHypercallCounts[ShvTlbHypercallCount];
 } SHV_CALLBACK_CONTEXT, *PSHV_CALLBACK_CONTEXT;
 
 //
@@ -141,6 +142,12 @@ ShvUtilAdjustMsr (
 VOID
 ShvUtilFlushTlb (
     VOID
+    );
+
+VOID
+ShvUtilCountHypercall (
+    _In_ PSHV_VP_DATA VpData,
+    _In_ UINT64 HypercallInput
     );
 
 VOID

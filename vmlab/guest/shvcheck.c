@@ -58,6 +58,20 @@ TryWaitPkg (
 
 #define MAX_EXIT_COUNTERS 256
 
+//
+// The TLB flush hypercalls SimpleVisor counts, in the order of its
+// ShvTlbHypercall
+//
+static const char* TlbHypercallNames[] =
+{
+    "flush_space",
+    "flush_list",
+    "flush_space_ex",
+    "flush_list_ex",
+};
+
+#define TLB_HYPERCALL_COUNTERS (sizeof(TlbHypercallNames) / sizeof(TlbHypercallNames[0]))
+
 static
 VOID
 ReportExitCounts (
@@ -65,10 +79,12 @@ ReportExitCounts (
     )
 {
     static UINT64 counts[MAX_EXIT_COUNTERS];
+    static UINT64 tlbCounts[TLB_HYPERCALL_COUNTERS];
     GROUP_AFFINITY affinity;
     GROUP_AFFINITY previous;
     INT32 cpuInfo[4];
     UINT32 counters;
+    UINT32 tlbCounters;
     UINT32 processors;
     UINT32 reason;
     UINT64 total;
@@ -80,9 +96,11 @@ ReportExitCounts (
     // the counters of the processor it runs on. So run on each processor in
     // turn, and add up the counters of those that SimpleVisor runs on, as
     // told by the detection leaf. The reads are CPUID exits themselves, and
-    // count too.
+    // count too. Another leaf reads the TLB flush hypercalls it forwarded to
+    // Hyper-V the same way.
     //
     counters = 0;
+    tlbCounters = 0;
     processors = 0;
     GetThreadGroupAffinity(GetCurrentThread(), &previous);
     for (group = 0; group < GetActiveProcessorGroupCount(); group++)
@@ -114,6 +132,17 @@ ReportExitCounts (
                 }
                 counts[reason] += ((UINT64)(UINT32)cpuInfo[1] << 32) | (UINT32)cpuInfo[0];
             }
+
+            for (reason = 0; reason < TLB_HYPERCALL_COUNTERS; reason++)
+            {
+                __cpuidex(cpuInfo, 0x41414141, 0x46460000 | reason);
+                tlbCounters = min((UINT32)cpuInfo[2], TLB_HYPERCALL_COUNTERS);
+                if (reason >= tlbCounters)
+                {
+                    break;
+                }
+                tlbCounts[reason] += ((UINT64)(UINT32)cpuInfo[1] << 32) | (UINT32)cpuInfo[0];
+            }
         }
     }
     SetThreadGroupAffinity(GetCurrentThread(), &previous, NULL);
@@ -136,6 +165,15 @@ ReportExitCounts (
         {
             printf("exits.%u=%llu\n", reason, counts[reason]);
         }
+    }
+
+    //
+    // One line per TLB flush hypercall, as Hyper-V recommends them to the
+    // guest only on some configurations
+    //
+    for (reason = 0; reason < tlbCounters; reason++)
+    {
+        printf("tlbcalls.%s=%llu\n", TlbHypercallNames[reason], tlbCounts[reason]);
     }
 }
 

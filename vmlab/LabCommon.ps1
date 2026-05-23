@@ -458,6 +458,15 @@ function Show-LabResult {
         Write-Host ("VM-Exits while loaded: {0} on {1} processors ({2})" -f
             (& $get 'loaded.exits.total'), (& $get 'loaded.exits.processors'), ($reasons -join ', '))
     }
+
+    #
+    # The TLB flush hypercalls SimpleVisor forwarded to Hyper-V by then
+    #
+    $tlbCalls = $Result.Keys | Where-Object { $_ -match '^loaded\.tlbcalls\.' } | Sort-Object |
+                ForEach-Object { "$(($_ -split '\.')[2]): $($Result[$_])" }
+    if ($tlbCalls) {
+        Write-Host ("TLB flush hypercalls while loaded: {0}" -f ($tlbCalls -join ', '))
+    }
     if ((& $get 'load.exit') -ne '0') {
         Write-Host "sc start: $(& $get 'load.output')"
     }

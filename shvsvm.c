@@ -914,6 +914,23 @@ ShvSvmHandleCpuid (
     }
 
     //
+    // Likewise for the TLB flush hypercalls forwarded to Hyper-V
+    //
+    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
+        (((UINT32)VpState->VpRegs->Rcx & 0xFFFF0000) == 0x46460000))
+    {
+        reason = (UINT32)VpState->VpRegs->Rcx & 0xFFFF;
+        count = (reason < ShvTlbHypercallCount) ?
+                VpState->VpData->TlbHypercallCounts[reason] : 0;
+
+        VpState->VpRegs->Rax = count & 0xFFFFFFFF;
+        VpState->VpRegs->Rbx = count >> 32;
+        VpState->VpRegs->Rcx = ShvTlbHypercallCount;
+        VpState->VpRegs->Rdx = 0;
+        return;
+    }
+
+    //
     // Issue the CPUID to the logical processor
     //
     __cpuidex(cpu_info, (INT32)VpState->VpRegs->Rax, (INT32)VpState->VpRegs->Rcx);
@@ -1099,6 +1116,7 @@ ShvSvmHandleVmmcall (
         return;
     }
 
+    ShvUtilCountHypercall(VpState->VpData, VpState->VpRegs->Rcx);
     ShvSvmHypercall(VpState->VpRegs);
 }
 
