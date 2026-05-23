@@ -608,6 +608,8 @@ ShvVmxHandleExit (
     case EXIT_REASON_VMWRITE:
     case EXIT_REASON_VMXOFF:
     case EXIT_REASON_VMXON:
+    case EXIT_REASON_INVEPT:
+    case EXIT_REASON_INVVPID:
         ShvVmxHandleVmx(VpState);
         break;
     case EXIT_REASON_EPT_VIOLATION:
