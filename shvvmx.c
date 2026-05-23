@@ -31,6 +31,7 @@ ShvVmxEptInitialize (
     VMX_PDPTE tempEpdpte;
     VMX_LARGE_PDE tempEpde;
     VMX_HUGE_PDPTE tempHugePdpte;
+    VMX_HUGE_PDPTE hugePdpte;
     VMX_PTE tempEpte;
     INT32 cpuInfo[4];
     UINT32 physicalAddressBits;
@@ -106,9 +107,9 @@ ShvVmxEptInitialize (
     VpData->Epde[0][0].AsUlonglong = tempEpdpte.AsUlonglong;
 
     //
-    // RAM or MMIO can live above 512GB. With 1GB EPT pages map it too, at one
-    // page of PDPTEs per 512GB. VMWare does not virtualize 1GB EPT entries
-    // correctly, so under it leave the range unmapped and let accesses halt
+    // The rest needs 1GB EPT pages. VMWare does not virtualize them correctly,
+    // so under it keep the 2MB pages, and leave RAM or MMIO above 512GB
+    // unmapped and let accesses halt
     //
     if (((VpData->MsrData[12].QuadPart & VMX_EPT_1GB_PAGE_BIT) == 0) ||
         (VpData->UnderlyingHypervisorIsVmware != FALSE))
@@ -117,7 +118,39 @@ ShvVmxEptInitialize (
     }
 
     //
-    // Each PML4 entry covers 512GB (39 bits) of the physical address width
+    // Fill out a RWX Huge PDPTE
+    //
+    tempHugePdpte.AsUlonglong = 0;
+    tempHugePdpte.Read = tempHugePdpte.Write = tempHugePdpte.Execute = 1;
+    tempHugePdpte.Large = 1;
+
+    //
+    // Where all of a 1GB has one memory type, map it with a 1GB page, which
+    // shortens the EPT walk and keeps guest 1GB pages whole in the TLB. The
+    // first 1GB has the 4KB pages of the first 2MB
+    //
+    for (i = 1; i < PDPTE_ENTRY_COUNT; i++)
+    {
+        for (j = 1; j < PDE_ENTRY_COUNT; j++)
+        {
+            if (VpData->Epde[i][j].Type != VpData->Epde[i][0].Type)
+            {
+                break;
+            }
+        }
+        if (j == PDE_ENTRY_COUNT)
+        {
+            hugePdpte.AsUlonglong = tempHugePdpte.AsUlonglong;
+            hugePdpte.PageFrameNumber = i;
+            hugePdpte.Type = VpData->Epde[i][0].Type;
+            VpData->Epdpt[i].AsUlonglong = hugePdpte.AsUlonglong;
+        }
+    }
+
+    //
+    // RAM or MMIO can live above 512GB. Map it too, at one page of PDPTEs per
+    // 512GB. Each PML4 entry covers 512GB (39 bits) of the physical address
+    // width
     //
     __cpuid(cpuInfo, 0x80000000);
     if ((UINT32)cpuInfo[0] < 0x80000008)
@@ -135,13 +168,6 @@ ShvVmxEptInitialize (
     {
         pml4Count = SHV_EPT_PML4E_COUNT;
     }
-
-    //
-    // Fill out a RWX Huge PDPTE
-    //
-    tempHugePdpte.AsUlonglong = 0;
-    tempHugePdpte.Read = tempHugePdpte.Write = tempHugePdpte.Execute = 1;
-    tempHugePdpte.Large = 1;
 
     //
     // Loop every additional 512GB, and identity map every 1GB of it
