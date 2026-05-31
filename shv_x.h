@@ -159,7 +159,7 @@ typedef struct _SHV_VP_DATA
 
             //
             // Whether VM entry rejected the HLT activity state, as nested
-            // Hyper-V does. HLT then resumes the guest right away
+            // Hyper-V does. HLT then idles in root mode instead
             //
             UINT8 HltActivityStateRejected;
 
@@ -245,9 +245,15 @@ typedef struct _SHV_VP_DATA
         DECLSPEC_ALIGN(PAGE_SIZE) SVM_VMCB HostVmcb;
         DECLSPEC_ALIGN(PAGE_SIZE) VMX_PTE EptLow[PTE_ENTRY_COUNT];
     };
+
+    //
+    // The IDT loaded while idling when the guest halts. Interrupts go to stubs
+    // that hand their vector to the guest, and the rest to the OS's handlers
+    //
+    DECLSPEC_ALIGN(PAGE_SIZE) KIDTENTRY64 IdleIdt[IDT_ENTRY_COUNT];
 } SHV_VP_DATA, *PSHV_VP_DATA;
 
-C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 7 + SHV_EPT_PML4E_COUNT - 1) * PAGE_SIZE));
+C_ASSERT(sizeof(SHV_VP_DATA) == (KERNEL_STACK_SIZE + (512 + 8 + SHV_EPT_PML4E_COUNT - 1) * PAGE_SIZE));
 
 VOID
 _sldt (

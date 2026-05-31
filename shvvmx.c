@@ -461,6 +461,7 @@ ShvVmxSetupVmcsForVp (
     __vmx_vmwrite(GUEST_IDTR_BASE, (uintptr_t)state->Idtr.Base);
     __vmx_vmwrite(GUEST_IDTR_LIMIT, state->Idtr.Limit);
     __vmx_vmwrite(HOST_IDTR_BASE, (uintptr_t)state->Idtr.Base);
+    ShvUtilBuildIdleIdt(VpData);
 
     //
     // Load CR0

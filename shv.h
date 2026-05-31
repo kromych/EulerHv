@@ -144,6 +144,32 @@ ShvUtilFlushTlb (
     VOID
     );
 
+//
+// The interrupt stubs of the idle IDT, one every SHV_IDLE_STUB_SIZE bytes from
+// IDT_FIRST_INTERRUPT on
+//
+#define SHV_IDLE_STUB_SIZE  16
+
+VOID
+ShvIdleStubs (
+    VOID
+    );
+
+UINT32
+ShvIdleWaitForInterrupt (
+    VOID
+    );
+
+VOID
+ShvUtilBuildIdleIdt (
+    _In_ PSHV_VP_DATA VpData
+    );
+
+UINT32
+ShvUtilIdle (
+    _In_ PSHV_VP_DATA VpData
+    );
+
 VOID
 ShvUtilCountHypercall (
     _In_ PSHV_VP_DATA VpData,

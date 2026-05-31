@@ -59,6 +59,9 @@ Environment:
 #define XCR0_TILECFG            (1ULL << 17)
 #define XCR0_TILEDATA           (1ULL << 18)
 #define AMD64_TSS               9
+#define AMD64_INTERRUPT_GATE    14
+#define IDT_ENTRY_COUNT         256
+#define IDT_FIRST_INTERRUPT     32
 #ifndef PAGE_SIZE
 #define PAGE_SIZE               4096
 #endif
@@ -121,6 +124,20 @@ typedef union _KGDTENTRY64
         INT64 DataHigh;
     };
 } KGDTENTRY64, *PKGDTENTRY64;
+
+typedef struct _KIDTENTRY64
+{
+    UINT16 OffsetLow;
+    UINT16 Selector;
+    UINT16 IstIndex : 3;
+    UINT16 Reserved0 : 5;
+    UINT16 Type : 5;
+    UINT16 Dpl : 2;
+    UINT16 Present : 1;
+    UINT16 OffsetMiddle;
+    UINT32 OffsetHigh;
+    UINT32 Reserved1;
+} KIDTENTRY64, *PKIDTENTRY64;
 
 #pragma pack(push,4)
 typedef struct _KTSS64
@@ -258,6 +275,7 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define INTR_INFO_VECTOR_DB                     1
 #define INTR_INFO_VECTOR_UD                     6
 #define INTR_INFO_VECTOR_GP                     13
+#define INTR_INFO_TYPE_EXT_INTR                 (0 << 8)
 #define INTR_INFO_TYPE_HARD_EXCEPTION           (3 << 8)
 #define INTR_INFO_DELIVER_CODE                  (1 << 11)
 #define INTR_INFO_VALID                         (1UL << 31)

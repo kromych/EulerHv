@@ -165,6 +165,61 @@ ShvUtilFlushTlb (
 }
 
 VOID
+ShvUtilBuildIdleIdt (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    PKIDTENTRY64 idt = VpData->IdleIdt;
+    UINT32 vector;
+    uintptr_t stub;
+
+    //
+    // Build the IDT for idling when the guest halts. NMIs and exceptions keep
+    // the OS's gates, as with the host IDT, and interrupts go to the idle
+    // stubs
+    //
+    __movsb((UINT8*)idt,
+            VpData->SpecialRegisters.Idtr.Base,
+            IDT_FIRST_INTERRUPT * sizeof(KIDTENTRY64));
+    for (vector = IDT_FIRST_INTERRUPT; vector < IDT_ENTRY_COUNT; vector++)
+    {
+        stub = (uintptr_t)ShvIdleStubs +
+               (vector - IDT_FIRST_INTERRUPT) * SHV_IDLE_STUB_SIZE;
+        idt[vector].OffsetLow = (UINT16)stub;
+        idt[vector].Selector = VpData->ContextFrame.SegCs & ~RPL_MASK;
+        idt[vector].Type = AMD64_INTERRUPT_GATE;
+        idt[vector].Present = 1;
+        idt[vector].OffsetMiddle = (UINT16)(stub >> 16);
+        idt[vector].OffsetHigh = (UINT32)(stub >> 32);
+    }
+}
+
+UINT32
+ShvUtilIdle (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    KDESCRIPTOR hostIdtr;
+    KDESCRIPTOR idleIdtr;
+    UINT32 vector;
+
+    //
+    // Halt until an interrupt comes in, and return its vector for the guest,
+    // or 0 if the processor woke up without one, such as after an NMI. The
+    // host would deliver interrupts through the OS's IDT, so load the idle
+    // IDT, which takes the interrupt in a stub. CR8 is the guest's, so the
+    // local APIC only delivers interrupts the guest would take
+    //
+    idleIdtr.Base = VpData->IdleIdt;
+    idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;
+    __sidt(&hostIdtr.Limit);
+    __lidt(&idleIdtr.Limit);
+    vector = ShvIdleWaitForInterrupt();
+    __lidt(&hostIdtr.Limit);
+    return vector;
+}
+
+VOID
 ShvUtilCountHypercall (
     _In_ PSHV_VP_DATA VpData,
     _In_ UINT64 HypercallInput
