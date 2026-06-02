@@ -449,10 +449,11 @@ ShvSvmSetupVmcbForVp (
     ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_VM_HSAVE_PA);
 
     //
-    // Intercept CPUID, the MSRs in the permission map and the SVM
+    // Intercept CPUID, HLT, the MSRs in the permission map and the SVM
     // instructions. VMRUN must always be intercepted
     //
     vmcb->InterceptMisc1 = SVM_INTERCEPT_CPUID |
+                           SVM_INTERCEPT_HLT |
                            SVM_INTERCEPT_INVLPGA |
                            SVM_INTERCEPT_MSR_PROT;
     vmcb->InterceptMisc2 = SVM_INTERCEPT_VMRUN |
@@ -521,6 +522,7 @@ ShvSvmSetupVmcbForVp (
     vmcb->Gdtr.Limit = state->Gdtr.Limit;
     vmcb->Idtr.Base = (UINT64)state->Idtr.Base;
     vmcb->Idtr.Limit = state->Idtr.Limit;
+    ShvUtilBuildIdleIdt(VpData);
 
     //
     // Load control registers, CR2, PAT and the CPL, and EFER, which needs
@@ -1134,6 +1136,43 @@ ShvSvmHandleVmmcall (
 }
 
 VOID
+ShvSvmHandleHlt (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSVM_VMCB vmcb = &VpState->VpData->Vmcb;
+    UINT32 vector;
+
+    //
+    // Complete the guest's HLT by halting in the host until an interrupt
+    // comes in, as VT-x does in root mode. An HLT with interrupts disabled
+    // only waits for an NMI, so just resume then. Single-stepping the HLT
+    // resumes too, as EVENTINJ is taken by its #DB.
+    //
+    // #VMEXIT cleared the GIF, which holds interrupts pending, so set it
+    // while halted. Inject the interrupt into the guest on VMRUN, which ends
+    // the interrupt shadow of sti; hlt with the HLT. Without one the guest
+    // just resumes
+    //
+    if (((vmcb->Rflags & EFLAGS_INTERRUPT_FLAG) == 0) ||
+        ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0))
+    {
+        return;
+    }
+
+    __svm_stgi();
+    vector = ShvUtilIdle(VpState->VpData);
+    __svm_clgi();
+
+    if (vector != 0)
+    {
+        vmcb->EventInj = SVM_EVENTINJ_VALID |
+                         SVM_EVENTINJ_TYPE_INTR |
+                         vector;
+    }
+}
+
+VOID
 ShvSvmHandleExit (
     _In_ PSHV_VP_STATE VpState
     )
@@ -1141,13 +1180,17 @@ ShvSvmHandleExit (
     PSVM_VMCB vmcb = &VpState->VpData->Vmcb;
 
     //
-    // Unlike VT-x, nested Hyper-V does not force HLT, MONITOR and MWAIT
-    // exits, and there is no activity state to fail VM entry on
+    // Unlike VT-x, nested Hyper-V does not force MONITOR and MWAIT exits, and
+    // there is no activity state to fail VM entry on. HLT exits so that the
+    // guest idles in the host, as on VT-x
     //
     switch (VpState->ExitReason)
     {
     case VMEXIT_CPUID:
         ShvSvmHandleCpuid(VpState);
+        break;
+    case VMEXIT_HLT:
+        ShvSvmHandleHlt(VpState);
         break;
     case VMEXIT_MSR:
         ShvSvmHandleMsr(VpState);

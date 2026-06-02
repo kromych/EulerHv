@@ -220,6 +220,7 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 //
 #define SVM_INTERCEPT_CPUID                     (1UL << 18)
 #define SVM_INTERCEPT_INVD                      (1UL << 22)
+#define SVM_INTERCEPT_HLT                       (1UL << 24)
 #define SVM_INTERCEPT_INVLPGA                   (1UL << 26)
 #define SVM_INTERCEPT_MSR_PROT                  (1UL << 28)
 
@@ -284,13 +285,15 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 #define VMEXIT_INVALID          ((UINT64)-1)
 
 //
-// VMCB EVENTINJ field format (offset 0x0A8). Type 3 is a hardware exception.
-// The error code occupies the upper 32 bits when EV is set
+// VMCB EVENTINJ field format (offset 0x0A8). Type 0 is an external interrupt,
+// and type 3 a hardware exception. The error code occupies the upper 32 bits
+// when EV is set
 //
 // The processor clears V once VMRUN delivered the event, so an injected event
 // is delivered once, and the next VMRUN does not inject it again. KVM relies
 // on this too, never clearing EVENTINJ after an exit
 //
+#define SVM_EVENTINJ_TYPE_INTR          (0 << 8)
 #define SVM_EVENTINJ_TYPE_EXCEPTION     (3 << 8)
 #define SVM_EVENTINJ_DELIVER_ERROR_CODE (1 << 11)
 #define SVM_EVENTINJ_VALID              (1UL << 31)
