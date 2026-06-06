@@ -77,6 +77,20 @@
     ShvVmxHypercall ENDP
 
     ;
+    ; UINT64 ShvVmxOwnHypercall (_In_ UINT64 Input,
+    ;                            _In_ UINT64 InputPhysicalAddress,
+    ;                            _In_ UINT64 OutputPhysicalAddress)
+    ;
+    ; Issues a hypercall of SimpleVisor's own to Hyper-V. The hypercall takes
+    ; its input value in RCX and the parameter addresses in RDX and R8, and
+    ; returns its result value in RAX, as the calling convention does
+    ;
+    ShvVmxOwnHypercall PROC
+    vmcall                      ; exit to Hyper-V from root mode
+    ret
+    ShvVmxOwnHypercall ENDP
+
+    ;
     ; VOID ShvVmxInvept (_In_ UINT64 Type, _In_ UINT64* Descriptor)
     ; VOID ShvVmxInvvpid (_In_ UINT64 Type, _In_ UINT64* Descriptor)
     ;

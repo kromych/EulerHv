@@ -126,6 +126,31 @@ ShvVpUnmarkVirtualized (
     _In_ UINT32 ProcessorIndex
     );
 
+//
+// Issues a hypercall of SimpleVisor's own to Hyper-V, with VMCALL or VMMCALL,
+// and returns its result value
+//
+typedef
+UINT64
+SHV_HYPERCALL (
+    _In_ UINT64 Input,
+    _In_ UINT64 InputPhysicalAddress,
+    _In_ UINT64 OutputPhysicalAddress
+    );
+typedef SHV_HYPERCALL *PSHV_HYPERCALL;
+
+VOID
+ShvVpSetSecondLevelRoot (
+    _In_ UINT32 ProcessorIndex,
+    _In_ UINT64 Root
+    );
+
+VOID
+ShvVpFlushGuestMappings (
+    _In_ PSHV_VP_DATA VpData,
+    _In_ PSHV_HYPERCALL Hypercall
+    );
+
 VOID
 ShvUtilConvertGdtEntry (
     _In_ VOID* GdtBase,
@@ -170,7 +195,7 @@ ShvUtilIdle (
     _In_ PSHV_VP_DATA VpData
     );
 
-VOID
+UINT8
 ShvUtilCountHypercall (
     _In_ PSHV_VP_DATA VpData,
     _In_ UINT64 HypercallInput

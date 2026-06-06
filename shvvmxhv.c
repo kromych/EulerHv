@@ -481,6 +481,8 @@ ShvVmxHandleVmcall (
     _In_ PSHV_VP_STATE VpState
     )
 {
+    UINT8 flush;
+
     //
     // Under Hyper-V forward hypercalls from the guest to Hyper-V. The guest
     // enabled the partition-wide hypercall page before we loaded, and the
@@ -500,8 +502,12 @@ ShvVmxHandleVmcall (
         return;
     }
 
-    ShvUtilCountHypercall(VpState->VpData, VpState->VpRegs->Rcx);
+    flush = ShvUtilCountHypercall(VpState->VpData, VpState->VpRegs->Rcx);
     ShvVmxHypercall(VpState->VpRegs);
+    if (flush != FALSE)
+    {
+        ShvVpFlushGuestMappings(VpState->VpData, ShvVmxOwnHypercall);
+    }
 }
 
 VOID

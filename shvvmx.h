@@ -36,6 +36,8 @@ ShvVmxHypercall (
     _Inout_ PCONTEXT Context
     );
 
+SHV_HYPERCALL ShvVmxOwnHypercall;
+
 VOID
 ShvVmxInvept (
     _In_ UINT64 Type,

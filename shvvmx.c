@@ -294,6 +294,7 @@ ShvVmxSetupVmcsForVp (
         // Load EPT Root Pointer
         //
         __vmx_vmwrite(EPT_POINTER, vmxEptp.AsUlonglong);
+        ShvVpSetSecondLevelRoot(VpData->ProcessorIndex, VpData->EptPml4PhysicalAddress);
 
         //
         // Set VPID to one

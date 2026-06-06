@@ -152,6 +152,12 @@ typedef struct _SHV_VP_DATA
             UINT8 UnderlyingHypervisorIsHyperV;
 
             //
+            // Whether Hyper-V offers HvCallFlushGuestPhysicalAddressSpace,
+            // which flushes the guest's cached mappings on every processor
+            //
+            UINT8 HyperVGuestMappingFlush;
+
+            //
             // Whether the guest can use UMONITOR, UMWAIT and TPAUSE. If not
             // WAITPKG is hidden
             //
@@ -186,6 +192,13 @@ typedef struct _SHV_VP_DATA
             UINT64 FatalGuestPhysicalAddress;
             UINT64 FatalGuestLinearAddress;
             UINT64 FatalGuestRip;
+
+            //
+            // The input of HvCallFlushGuestPhysicalAddressSpace, the second
+            // level root and flags, and its physical address
+            //
+            DECLSPEC_ALIGN(16) UINT64 GuestMappingFlushInput[2];
+            UINT64 GuestMappingFlushInputPhysicalAddress;
 
             //
             // Must be last. The hypervisor stack grows down toward it, so an

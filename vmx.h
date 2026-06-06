@@ -338,6 +338,7 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define HYPERV_CPUID_FEATURES                   0x40000003
 #define HYPERV_CPUID_ENLIGHTMENT_INFO           0x40000004
 #define HYPERV_CPUID_IMPLEMENT_LIMITS           0x40000005
+#define HYPERV_CPUID_NESTED_FEATURES            0x4000000a
 
 #define HYPERV_HYPERVISOR_PRESENT_BIT           0x80000000
 #define HYPERV_CPUID_MIN                        0x40000005
@@ -351,6 +352,11 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define HYPERV_ENLIGHTMENT_LOCAL_TLB_FLUSH      0x00000002
 #define HYPERV_ENLIGHTMENT_REMOTE_TLB_FLUSH     0x00000004
 
+//
+// The CPUID 4000000Ah EAX bit offering HvCallFlushGuestPhysicalAddressSpace
+//
+#define HYPERV_NESTED_GUEST_MAPPING_FLUSH       0x00040000
+
 #define HYPERV_SYNTHETIC_MSR_MIN                0x40000000
 #define HYPERV_SYNTHETIC_MSR_MAX                0x400000ff
 
@@ -362,6 +368,7 @@ typedef enum _HvCallCode
     HvCallFlushVirtualAddressList           = 0x0003,
     HvCallFlushVirtualAddressSpaceEx        = 0x0013,
     HvCallFlushVirtualAddressListEx         = 0x0014,
+    HvCallFlushGuestPhysicalAddressSpace    = 0x00af,
 } HvCallCode;
 
 typedef enum _VmcsField

@@ -219,7 +219,7 @@ ShvUtilIdle (
     return vector;
 }
 
-VOID
+UINT8
 ShvUtilCountHypercall (
     _In_ PSHV_VP_DATA VpData,
     _In_ UINT64 HypercallInput
@@ -227,24 +227,26 @@ ShvUtilCountHypercall (
 {
     //
     // Count the TLB flush hypercalls by the call code in the low 16 bits of
-    // the input value. A rep hypercall that Hyper-V returns early to is issued
-    // again from its rep start index, and counts again
+    // the input value, and return whether this is one. A rep hypercall that
+    // Hyper-V returns early to is issued again from its rep start index, and
+    // counts again
     //
     switch (HypercallInput & HYPERV_HYPERCALL_CODE_MASK)
     {
     case HvCallFlushVirtualAddressSpace:
         VpData->TlbHypercallCounts[ShvTlbHypercallFlushSpace]++;
-        break;
+        return TRUE;
     case HvCallFlushVirtualAddressList:
         VpData->TlbHypercallCounts[ShvTlbHypercallFlushList]++;
-        break;
+        return TRUE;
     case HvCallFlushVirtualAddressSpaceEx:
         VpData->TlbHypercallCounts[ShvTlbHypercallFlushSpaceEx]++;
-        break;
+        return TRUE;
     case HvCallFlushVirtualAddressListEx:
         VpData->TlbHypercallCounts[ShvTlbHypercallFlushListEx]++;
-        break;
+        return TRUE;
     }
+    return FALSE;
 }
 
 VOID

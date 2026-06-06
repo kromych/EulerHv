@@ -44,6 +44,8 @@ ShvSvmHypercall (
     _Inout_ PCONTEXT Context
     );
 
+SHV_HYPERCALL ShvSvmOwnHypercall;
+
 DECLSPEC_NORETURN
 VOID
 ShvSvmHandleFatalExit (
@@ -483,6 +485,7 @@ ShvSvmSetupVmcbForVp (
     {
         vmcb->NpEnable = 1;
         vmcb->NCr3 = VpData->NptPml4PhysicalAddress;
+        ShvVpSetSecondLevelRoot(VpData->ProcessorIndex, VpData->NptPml4PhysicalAddress);
     }
 
     //
@@ -1115,6 +1118,8 @@ ShvSvmHandleVmmcall (
     _In_ PSHV_VP_STATE VpState
     )
 {
+    UINT8 flush;
+
     //
     // Under Hyper-V forward hypercalls to Hyper-V, raising #UD for user mode
     // as Hyper-V would. Otherwise VMMCALL fails like the SVM instructions
@@ -1131,8 +1136,12 @@ ShvSvmHandleVmmcall (
         return;
     }
 
-    ShvUtilCountHypercall(VpState->VpData, VpState->VpRegs->Rcx);
+    flush = ShvUtilCountHypercall(VpState->VpData, VpState->VpRegs->Rcx);
     ShvSvmHypercall(VpState->VpRegs);
+    if (flush != FALSE)
+    {
+        ShvVpFlushGuestMappings(VpState->VpData, ShvSvmOwnHypercall);
+    }
 }
 
 VOID

@@ -31,6 +31,13 @@ Environment:
 static volatile long* ShvVpVirtualizedBitmap;
 static UINT32 ShvVpVirtualizedBitmapCount;
 
+//
+// The root of each processor's second level identity map, by processor
+// number, or 0 if SimpleVisor does not run there. Each processor has its own,
+// and the guest's cached mappings are tagged with it
+//
+static volatile UINT64* ShvVpSecondLevelRoots;
+
 INT32
 ShvVpAllocateTracking (
     _In_ UINT32 CpuCount
@@ -48,6 +55,15 @@ ShvVpAllocateTracking (
         return SHV_STATUS_NO_RESOURCES;
     }
     __stosb((UINT8*)ShvVpVirtualizedBitmap, 0, size);
+
+    ShvVpSecondLevelRoots = ShvOsAllocateContigousAlignedMemory(CpuCount * sizeof(UINT64));
+    if (ShvVpSecondLevelRoots == NULL)
+    {
+        ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpVirtualizedBitmap, size);
+        ShvVpVirtualizedBitmap = NULL;
+        return SHV_STATUS_NO_RESOURCES;
+    }
+    __stosq((UINT64*)ShvVpSecondLevelRoots, 0, CpuCount);
     ShvVpVirtualizedBitmapCount = CpuCount;
     return SHV_STATUS_SUCCESS;
 }
@@ -61,7 +77,10 @@ ShvVpFreeTracking (
     {
         ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpVirtualizedBitmap,
                                          ((ShvVpVirtualizedBitmapCount + 31) / 32) * sizeof(long));
+        ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpSecondLevelRoots,
+                                         ShvVpVirtualizedBitmapCount * sizeof(UINT64));
         ShvVpVirtualizedBitmap = NULL;
+        ShvVpSecondLevelRoots = NULL;
         ShvVpVirtualizedBitmapCount = 0;
     }
 }
@@ -100,6 +119,51 @@ ShvVpUnmarkVirtualized (
     )
 {
     _interlockedbittestandreset(ShvVpVirtualizedBitmap, ProcessorIndex);
+}
+
+VOID
+ShvVpSetSecondLevelRoot (
+    _In_ UINT32 ProcessorIndex,
+    _In_ UINT64 Root
+    )
+{
+    ShvVpSecondLevelRoots[ProcessorIndex] = Root;
+}
+
+VOID
+ShvVpFlushGuestMappings (
+    _In_ PSHV_VP_DATA VpData,
+    _In_ PSHV_HYPERCALL Hypercall
+    )
+{
+    UINT32 i;
+    UINT64 root;
+
+    //
+    // Nested under Hyper-V, the guest flushes the TLB of other processors with
+    // hypercalls, which SimpleVisor forwards from root mode. Hyper-V then
+    // flushes the mappings of SimpleVisor, not those the guest cached under
+    // VPID or ASID 1. Flush those as well, on every processor, by flushing all
+    // mappings cached for each processor's second level identity map. That is
+    // more than the guest asked for, but its TLB refills from the same map
+    //
+    if (VpData->HyperVGuestMappingFlush == FALSE)
+    {
+        return;
+    }
+
+    for (i = 0; i < ShvVpVirtualizedBitmapCount; i++)
+    {
+        root = ShvVpSecondLevelRoots[i];
+        if (root != 0)
+        {
+            VpData->GuestMappingFlushInput[0] = root;
+            VpData->GuestMappingFlushInput[1] = 0;
+            Hypercall(HvCallFlushGuestPhysicalAddressSpace,
+                      VpData->GuestMappingFlushInputPhysicalAddress,
+                      0);
+        }
+    }
 }
 
 VOID
@@ -154,6 +218,20 @@ ShvVpDetectUnderlyingHypervisor (
     VpData->UnderlyingHypervisorIsHyperV = (cpuInfo[1] == 'rciM') &&
                                            (cpuInfo[2] == 'foso') &&
                                            (cpuInfo[3] == 'vH t');
+
+    //
+    // Check whether Hyper-V can flush the guest's cached mappings on every
+    // processor, and keep the physical address of that hypercall's input
+    //
+    if ((VpData->UnderlyingHypervisorIsHyperV != FALSE) &&
+        ((UINT32)cpuInfo[0] >= HYPERV_CPUID_NESTED_FEATURES))
+    {
+        __cpuid(cpuInfo, HYPERV_CPUID_NESTED_FEATURES);
+        VpData->HyperVGuestMappingFlush =
+            (cpuInfo[0] & HYPERV_NESTED_GUEST_MAPPING_FLUSH) != 0;
+        VpData->GuestMappingFlushInputPhysicalAddress =
+            ShvOsGetPhysicalAddress(VpData->GuestMappingFlushInput);
+    }
 }
 
 INT32
@@ -161,6 +239,7 @@ ShvVpLaunch (
     _In_ PSHV_VP_DATA VpData
     )
 {
+    INT32 status;
     //
     // Being nested changes how CPUID and the identity map are handled
     //
@@ -196,9 +275,11 @@ ShvVpLaunch (
     //
     // Launch the guest. This will cause the processor to jump to
     // ShvVpRestoreAfterLaunch on success, or return back to the caller on
-    // failure.
+    // failure, when the second level identity map is no longer used
     //
-    return ShvArch->Run(VpData);
+    status = ShvArch->Run(VpData);
+    ShvVpSetSecondLevelRoot(VpData->ProcessorIndex, 0);
+    return status;
 }
 
 DECLSPEC_NORETURN
@@ -329,6 +410,7 @@ ShvVpUnloadCallback (
         __analysis_assume((cpuInfo[0] != 0) && (cpuInfo[1] != 0));
         vpData = (PSHV_VP_DATA)((UINT64)cpuInfo[0] << 32 | (UINT32)cpuInfo[1]);
         _interlockedbittestandreset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
+        ShvVpSetSecondLevelRoot(vpData->ProcessorIndex, 0);
         for (i = 0; i < SHV_EXIT_REASON_COUNT; i++)
         {
             _InterlockedExchangeAdd64(&Context->ExitCounts[i], (INT64)vpData->ExitCounts[i]);
