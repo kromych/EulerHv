@@ -82,7 +82,7 @@ if ($AttachDebugger -or -not $SkipDebuggerCheck) {
 
 Write-Host 'Copying the test files into the guest...'
 $files = @(
-    (Join-Path $outDir 'shv.sys'),
+    (Join-Path $outDir 'euler.sys'),
     (Join-Path $outDir 'shvcheck.exe'),
     (Join-Path $outDir 'SimpleVisorLab.cer'),
     (Join-Path (Split-Path $PSScriptRoot -Parent) 'guest\Test-ShvGuest.ps1')

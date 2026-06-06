@@ -260,7 +260,7 @@ cd vmlab\hyperv
 | Script | Purpose |
 | --- | --- |
 | `New-LabVm.ps1` | Creates the VM from the ISO, installs Windows unattended, and takes the `clean` snapshot. |
-| `Build-LabArtifacts.ps1` | Builds `shv.sys` and `shvcheck.exe` with the EWDK, and test-signs `shv.sys`. |
+| `Build-LabArtifacts.ps1` | Builds `euler.sys` and `shvcheck.exe` with the EWDK, and test-signs `euler.sys`. |
 | `Invoke-ShvTest.ps1` | Reverts to `clean`, copies the files in, runs the guest test, and checks the results. |
 | `Connect-LabDebugger.ps1` | Attaches WinDbg or kd to the VM's serial pipe (`-OpenVmm` for the OpenVMM VM, `-HyperV` for the Hyper-V one). |
 | `LabCommon.ps1` | Shared settings (VM name and location, guest credentials) and helpers: install media, kd, VNC, result checks. |

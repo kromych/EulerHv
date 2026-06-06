@@ -4,10 +4,10 @@
 
 .DESCRIPTION
     Using the Enterprise WDK, builds SimpleVisor (NT configuration) and the
-    shvcheck.exe guest probe, and test-signs shv.sys with a self-signed lab
+    shvcheck.exe guest probe, and test-signs euler.sys with a self-signed lab
     certificate, created on first use in the current user's certificate store.
 
-    Everything goes to vmlab\out: shv.sys, shv.pdb, shvcheck.exe and
+    Everything goes to vmlab\out: euler.sys, euler.pdb, shvcheck.exe and
     SimpleVisorLab.cer.
 
 .PARAMETER WdkRoot
@@ -58,7 +58,7 @@ finally {
     Remove-Item -Path $scriptPath -ErrorAction SilentlyContinue
 }
 Remove-Item -Path (Join-Path $OutDir 'shvcheck.obj') -ErrorAction SilentlyContinue
-Copy-Item -Path (Join-Path $RepoRoot 'x64\NT\shv.sys'), (Join-Path $RepoRoot 'x64\NT\shv.pdb') -Destination $OutDir
+Copy-Item -Path (Join-Path $RepoRoot 'x64\NT\euler.sys'), (Join-Path $RepoRoot 'x64\NT\euler.pdb') -Destination $OutDir
 
 #
 # Test-sign the driver with the lab certificate
@@ -81,6 +81,6 @@ if (-not $signtool) {
     throw 'signtool.exe was not found in the Enterprise WDK.'
 }
 Invoke-NativeCommand -FilePath $signtool.FullName `
-                     -Arguments @('sign', '/q', '/fd', 'SHA256', '/s', 'My', '/sha1', $cert.Thumbprint, (Join-Path $OutDir 'shv.sys')) | Out-Null
+                     -Arguments @('sign', '/q', '/fd', 'SHA256', '/s', 'My', '/sha1', $cert.Thumbprint, (Join-Path $OutDir 'euler.sys')) | Out-Null
 
 Write-Host "Built and signed the lab artifacts in $OutDir"

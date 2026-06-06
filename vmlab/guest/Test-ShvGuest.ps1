@@ -97,7 +97,7 @@ certutil -f -addstore TrustedPublisher $cert | Out-Null
 #
 sc.exe stop $service 2>&1 | Out-Null
 sc.exe delete $service 2>&1 | Out-Null
-sc.exe create $service type= kernel binPath= (Join-Path $labDir 'shv.sys') | Out-Null
+sc.exe create $service type= kernel binPath= (Join-Path $labDir 'euler.sys') | Out-Null
 
 Invoke-Phase 'before'
 
