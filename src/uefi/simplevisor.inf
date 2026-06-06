@@ -6,19 +6,25 @@
   ENTRY_POINT = UefiMain
  
 [Sources]
-  shv.c
-  shvsvm.c
-  shvutil.c
-  shvvmx.c
-  shvvmxhv.c
-  shvvp.c
-  uefi/shvos.c
+  inc/ntint.h
+  inc/shv.h
+  inc/shv_x.h
+  inc/svm/svm.h
+  inc/vt-x/shvvmx.h
+  inc/vt-x/vmx.h
+  src/shv.c
+  src/shvutil.c
+  src/shvvp.c
+  src/svm/shvsvm.c
+  src/vt-x/shvvmx.c
+  src/vt-x/shvvmxhv.c
+  src/uefi/shvos.c
  
 [Sources.X64]
-  shvidlex64.asm
-  shvsvmhvx64.asm
-  shvvmxhvx64.asm
-  uefi/shvosx64.asm
+  src/masm/shvidlex64.asm
+  src/svm/masm/shvsvmhvx64.asm
+  src/vt-x/masm/shvvmxhvx64.asm
+  src/uefi/shvosx64.asm
  
 [Packages]
   MdePkg/MdePkg.dec

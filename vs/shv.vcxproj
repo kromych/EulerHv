@@ -14,10 +14,15 @@
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{4C048BB2-7E8D-43BF-B29D-942461275023}</ProjectGuid>
     <WindowsTargetPlatformVersion>$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
+    <RepoRoot>$(MSBuildThisFileDirectory)..\</RepoRoot>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="$(Configuration)\$(Configuration).default.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(RepoRoot)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(RepoRoot)$(Platform)\$(Configuration)\obj\</IntDir>
+  </PropertyGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)'=='UEFI'">
     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
   </ImportGroup>
@@ -27,29 +32,29 @@
     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
   </ImportGroup>
   <PropertyGroup>
-    <IncludePath>$(IncludePath);$(VC_IncludePath)</IncludePath>
+    <IncludePath>$(RepoRoot)inc;$(RepoRoot)inc\vt-x;$(RepoRoot)inc\svm;$(IncludePath);$(VC_IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemGroup>
-    <ClCompile Include="shv.c" />
-    <ClCompile Include="shvsvm.c" />
-    <ClCompile Include="shvutil.c" />
-    <ClCompile Include="shvvmx.c" />
-    <ClCompile Include="shvvmxhv.c" />
-    <ClCompile Include="shvvp.c" />
-    <ClCompile Include="$(Configuration)\shvos.c"/>
+    <ClCompile Include="..\src\shv.c" />
+    <ClCompile Include="..\src\shvutil.c" />
+    <ClCompile Include="..\src\shvvp.c" />
+    <ClCompile Include="..\src\svm\shvsvm.c" />
+    <ClCompile Include="..\src\vt-x\shvvmx.c" />
+    <ClCompile Include="..\src\vt-x\shvvmxhv.c" />
+    <ClCompile Include="..\src\$(Configuration)\shvos.c"/>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="shv.h" />
-    <ClInclude Include="ntint.h" />
-    <ClInclude Include="shv_x.h" />
-    <ClInclude Include="shvvmx.h" />
-    <ClInclude Include="svm.h" />
-    <ClInclude Include="vmx.h" />
+    <ClInclude Include="..\inc\ntint.h" />
+    <ClInclude Include="..\inc\shv.h" />
+    <ClInclude Include="..\inc\shv_x.h" />
+    <ClInclude Include="..\inc\svm\svm.h" />
+    <ClInclude Include="..\inc\vt-x\shvvmx.h" />
+    <ClInclude Include="..\inc\vt-x\vmx.h" />
   </ItemGroup>
   <ItemGroup>
-    <MASM Include="shvidlex64.asm" />
-    <MASM Include="shvsvmhvx64.asm" />
-    <MASM Include="shvvmxhvx64.asm" />
-    <MASM Include="$(Configuration)\shvosx64.asm"/>
+    <MASM Include="..\src\masm\shvidlex64.asm" />
+    <MASM Include="..\src\svm\masm\shvsvmhvx64.asm" />
+    <MASM Include="..\src\vt-x\masm\shvvmxhvx64.asm" />
+    <MASM Include="..\src\$(Configuration)\shvosx64.asm"/>
   </ItemGroup>
 </Project>

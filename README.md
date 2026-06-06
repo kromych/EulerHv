@@ -12,6 +12,13 @@ Additionally, SimpleVisor utilizes a lightweight OS-library for Windows-specific
 
 SimpleVisor can be built with Visual Studio 2015 Update 3, and while older/newer compilers have not been tested and are not supported, it's likely that they can build the project as well. It's important, however, to keep the various compiler and linker settings as you see them, however.
 
+The sources are laid out as follows:
+
+* `src` has the backend-independent code, with the VT-x and SVM backends in `src\vt-x` and `src\svm`, their assembly in `masm` under each, and the OS layers in `src\nt` and `src\uefi`.
+* `inc` has the shared headers, with those of each backend in `inc\vt-x` and `inc\svm`.
+* `vs` has the Visual Studio solution, project and property sheets. Builds go to `x64\<configuration>`.
+* `vmlab` has the test labs, see `vmlab\README.md`.
+
 SimpleVisor has currently been tested on the following platforms successfully:
 
 * Windows 8.1 on a Haswell Processor (Custom Desktop)
