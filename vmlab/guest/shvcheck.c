@@ -228,6 +228,16 @@ main (
     printf("hv_interface=%s\n", iface);
 
     //
+    // CPUID 40000003h under Hyper-V: the partition privileges, which decide
+    // whether SimpleVisor idles in the guest idle MSR (EAX bit 10)
+    //
+    if (strcmp(iface, "Hv#1") == 0)
+    {
+        __cpuid(cpuInfo, 0x40000003);
+        printf("hv_privileges=0x%08X\n", cpuInfo[0]);
+    }
+
+    //
     // The magic SimpleVisor detection leaf, answered with ' vhS' only when
     // SimpleVisor is loaded
     //
