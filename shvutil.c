@@ -205,10 +205,22 @@ ShvUtilIdle (
 
     //
     // Halt until an interrupt comes in, and return its vector for the guest,
-    // or 0 if the processor woke up without one, such as after an NMI. The
-    // host would deliver interrupts through the OS's IDT, so load the idle
-    // IDT, which takes the interrupt in a stub. CR8 is the guest's, so the
-    // local APIC only delivers interrupts the guest would take
+    // or 0 if the processor woke up without one, such as after an NMI.
+    //
+    // Under Hyper-V, read its guest idle MSR when allowed. It returns once an
+    // interrupt is pending, even with interrupts disabled, so the interrupt
+    // stays pending in the local APIC and the guest takes it once it runs
+    //
+    if (VpData->HyperVGuestIdle != FALSE)
+    {
+        __readmsr(HYPERV_MSR_GUEST_IDLE);
+        return 0;
+    }
+
+    //
+    // Otherwise halt. The host would deliver interrupts through the OS's IDT,
+    // so load the idle IDT, which takes the interrupt in a stub. CR8 is the
+    // guest's, so the local APIC only delivers interrupts the guest would take
     //
     idleIdtr.Base = VpData->IdleIdt;
     idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;

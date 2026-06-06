@@ -345,6 +345,13 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define HYPERV_CPUID_MAX                        0x4000ffff
 
 //
+// The CPUID 40000003h EAX privilege to read the guest idle MSR, which idles
+// the processor until an interrupt is pending, even with interrupts masked
+//
+#define HYPERV_FEATURE_GUEST_IDLE_MSR           0x00000400
+#define HYPERV_MSR_GUEST_IDLE                   0x400000f0
+
+//
 // The CPUID 40000004h EAX bits recommending hypercalls to switch address
 // spaces and to flush the TLB of this processor and of others
 //

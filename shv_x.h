@@ -158,6 +158,12 @@ typedef struct _SHV_VP_DATA
             UINT8 HyperVGuestMappingFlush;
 
             //
+            // Whether Hyper-V lets SimpleVisor read the guest idle MSR, which
+            // it idles in when the guest halts
+            //
+            UINT8 HyperVGuestIdle;
+
+            //
             // Whether the guest can use UMONITOR, UMWAIT and TPAUSE. If not
             // WAITPKG is hidden
             //

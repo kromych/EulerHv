@@ -196,6 +196,7 @@ ShvVpDetectUnderlyingHypervisor (
     )
 {
     INT32 cpuInfo[4];
+    UINT32 maxLeaf;
 
     //
     // SimpleVisor is not running yet, so CPUID reaches the processor or the
@@ -218,13 +219,23 @@ ShvVpDetectUnderlyingHypervisor (
     VpData->UnderlyingHypervisorIsHyperV = (cpuInfo[1] == 'rciM') &&
                                            (cpuInfo[2] == 'foso') &&
                                            (cpuInfo[3] == 'vH t');
+    if (VpData->UnderlyingHypervisorIsHyperV == FALSE)
+    {
+        return;
+    }
+    maxLeaf = (UINT32)cpuInfo[0];
+
+    //
+    // Check whether Hyper-V lets SimpleVisor idle in the guest idle MSR
+    //
+    __cpuid(cpuInfo, HYPERV_CPUID_FEATURES);
+    VpData->HyperVGuestIdle = (cpuInfo[0] & HYPERV_FEATURE_GUEST_IDLE_MSR) != 0;
 
     //
     // Check whether Hyper-V can flush the guest's cached mappings on every
     // processor, and keep the physical address of that hypercall's input
     //
-    if ((VpData->UnderlyingHypervisorIsHyperV != FALSE) &&
-        ((UINT32)cpuInfo[0] >= HYPERV_CPUID_NESTED_FEATURES))
+    if (maxLeaf >= HYPERV_CPUID_NESTED_FEATURES)
     {
         __cpuid(cpuInfo, HYPERV_CPUID_NESTED_FEATURES);
         VpData->HyperVGuestMappingFlush =
