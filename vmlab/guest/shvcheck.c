@@ -229,12 +229,20 @@ main (
 
     //
     // CPUID 40000003h under Hyper-V: the partition privileges, which decide
-    // whether SimpleVisor idles in the guest idle MSR (EAX bit 10)
+    // whether SimpleVisor idles in the guest idle MSR (EAX bit 10). CPUID
+    // 4000000Ah: the nested features, which decide whether it can flush the
+    // guest's mappings on every processor (EAX bit 18)
     //
     if (strcmp(iface, "Hv#1") == 0)
     {
         __cpuid(cpuInfo, 0x40000003);
         printf("hv_privileges=0x%08X\n", cpuInfo[0]);
+        __cpuid(cpuInfo, 0x40000000);
+        if ((UINT32)cpuInfo[0] >= 0x4000000A)
+        {
+            __cpuid(cpuInfo, 0x4000000A);
+            printf("hv_nested_features=0x%08X\n", cpuInfo[0]);
+        }
     }
 
     //
