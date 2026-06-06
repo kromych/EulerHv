@@ -20,6 +20,7 @@
   <Import Project="$(Configuration)\$(Configuration).default.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
+    <TargetName>euler</TargetName>
     <OutDir>$(RepoRoot)$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(RepoRoot)$(Platform)\$(Configuration)\obj\</IntDir>
   </PropertyGroup>
