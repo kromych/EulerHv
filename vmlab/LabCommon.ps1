@@ -592,13 +592,15 @@ function Test-LabKernelDebugger {
     # coming and going, so the pipe stays usable for Connect-LabDebugger.ps1.
     #
     # TestGuest tells whether the guest responds, and defaults to a VMware
-    # guest operation on the given VM.
+    # guest operation on the given VM. It runs only in here, where it sees
+    # $Vmx. A closure would not: it only sees the global scope, and not the
+    # functions of a script that dot-sourced this file.
     #
     # With KeepAttached, kd stays attached in its own window and logs to
     # LogPath. Stop it with Stop-LabKernelDebugger.
     #
     if (-not $TestGuest) {
-        $TestGuest = { Test-GuestFile -Vmx $Vmx -Path "$GuestLabDir\ready.txt" }.GetNewClosure()
+        $TestGuest = { Test-GuestFile -Vmx $Vmx -Path "$GuestLabDir\ready.txt" }
     }
     $notResumed = "`nThe guest may be left broken into the debugger; attach with Connect-LabDebugger.ps1 to resume it."
     if (-not (Send-LabKdBreakIn -PipeName $PipeName)) {
