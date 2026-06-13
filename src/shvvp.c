@@ -145,7 +145,10 @@ ShvVpFlushGuestMappings (
     // flushes the mappings of SimpleVisor, not those the guest cached under
     // VPID or ASID 1. Flush those as well, on every processor, by flushing all
     // mappings cached for each processor's second level identity map. That is
-    // more than the guest asked for, but its TLB refills from the same map
+    // more than the guest asked for, but its TLB refills from the same map.
+    //
+    // Without that hypercall SimpleVisor does not load if Hyper-V recommends
+    // the TLB flush hypercalls, see ShvVpDetectUnderlyingHypervisor
     //
     if (VpData->HyperVGuestMappingFlush == FALSE)
     {
@@ -190,13 +193,14 @@ ShvCaptureSpecialRegisters (
     _sldt(&SpecialRegisters->Ldtr);
 }
 
-VOID
+UINT8
 ShvVpDetectUnderlyingHypervisor (
     _In_ PSHV_VP_DATA VpData
     )
 {
     INT32 cpuInfo[4];
     UINT32 maxLeaf;
+    UINT32 enlightenments;
 
     //
     // SimpleVisor is not running yet, so CPUID reaches the processor or the
@@ -206,7 +210,7 @@ ShvVpDetectUnderlyingHypervisor (
     VpData->UnderlyingHypervisor = (cpuInfo[2] & HYPERV_HYPERVISOR_PRESENT_BIT) != 0;
     if (VpData->UnderlyingHypervisor == FALSE)
     {
-        return;
+        return TRUE;
     }
 
     //
@@ -221,7 +225,7 @@ ShvVpDetectUnderlyingHypervisor (
                                            (cpuInfo[3] == 'vH t');
     if (VpData->UnderlyingHypervisorIsHyperV == FALSE)
     {
-        return;
+        return TRUE;
     }
     maxLeaf = (UINT32)cpuInfo[0];
 
@@ -243,6 +247,25 @@ ShvVpDetectUnderlyingHypervisor (
         VpData->GuestMappingFlushInputPhysicalAddress =
             ShvOsGetPhysicalAddress(VpData->GuestMappingFlushInput);
     }
+
+    //
+    // The OS keeps the hypercalls Hyper-V recommended at boot for switching
+    // address spaces and flushing the TLB. Forwarded from root mode they act
+    // on SimpleVisor's address space instead of the guest's. Flushing the
+    // guest's cached mappings afterwards makes up for the TLB flushes, but
+    // nothing makes up for the switches. Do not load where the guest would
+    // run on stale translations or in the wrong address space
+    //
+    __cpuid(cpuInfo, HYPERV_CPUID_ENLIGHTMENT_INFO);
+    enlightenments = (UINT32)cpuInfo[0];
+    if (((enlightenments & HYPERV_ENLIGHTMENT_ADDRESS_SPACE_SWITCH) != 0) ||
+        (((enlightenments & (HYPERV_ENLIGHTMENT_LOCAL_TLB_FLUSH |
+                             HYPERV_ENLIGHTMENT_REMOTE_TLB_FLUSH)) != 0) &&
+         (VpData->HyperVGuestMappingFlush == FALSE)))
+    {
+        return FALSE;
+    }
+    return TRUE;
 }
 
 INT32
@@ -252,9 +275,13 @@ ShvVpLaunch (
 {
     INT32 status;
     //
-    // Being nested changes how CPUID and the identity map are handled
+    // Being nested changes how CPUID and the identity map are handled, and
+    // can keep SimpleVisor from running at all
     //
-    ShvVpDetectUnderlyingHypervisor(VpData);
+    if (ShvVpDetectUnderlyingHypervisor(VpData) == FALSE)
+    {
+        return SHV_STATUS_NOT_AVAILABLE;
+    }
 
     //
     // Initialize all the MTRR-related MSRs by reading their value and build
