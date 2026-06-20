@@ -9,6 +9,14 @@ $labDir = 'C:\vmlab'
 $resultFile = Join-Path $labDir 'result.txt'
 $service = 'simplevisor'
 
+#
+# This trusts the lab's certificate machine-wide and loads the driver, so only
+# go on in a lab VM, which FirstLogon.ps1 marked as ready
+#
+if (-not (Test-Path (Join-Path $labDir 'ready.txt'))) {
+    throw 'Test-ShvGuest.ps1 only runs in a lab VM.'
+}
+
 function Write-Result {
     param ([string] $Line)
 

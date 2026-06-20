@@ -12,6 +12,14 @@
 #   - Hyper-V: nothing, as PowerShell Direct is inbox (vmlab\hyperv.txt)
 #
 
+#
+# All of this reconfigures the machine and reboots it, so only go on from the
+# lab's install ISO, which has autounattend.xml at its root, next to vmlab
+#
+if (-not (Test-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'autounattend.xml'))) {
+    throw 'FirstLogon.ps1 only runs at the first logon of a lab VM, from its install ISO.'
+}
+
 $ErrorActionPreference = 'Continue'
 $labDir = 'C:\vmlab'
 New-Item -ItemType Directory -Path $labDir -Force | Out-Null
