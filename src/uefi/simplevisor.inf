@@ -22,6 +22,7 @@
  
 [Sources.X64]
   src/masm/shvidlex64.asm
+  src/masm/shvmsrx64.asm
   src/svm/masm/shvsvmhvx64.asm
   src/vt-x/masm/shvvmxhvx64.asm
   src/uefi/shvosx64.asm

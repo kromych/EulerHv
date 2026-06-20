@@ -1078,28 +1078,29 @@ ShvSvmHandleMsr (
     }
 
     //
-    // Under Hyper-V pass its synthetic MSRs through as on VT-x. Others
-    // outside the MSR permission map raise #GP
+    // The others exit outside the MSR permission map ranges, such as the
+    // synthetic MSRs of Hyper-V and the Scalable MCA MSRs. Access them from
+    // the host as on VT-x, and give the guest the #GP the processor or the
+    // hypervisor we are nested under raises
     //
-    if ((VpState->VpData->UnderlyingHypervisorIsHyperV != FALSE) &&
-        (msr >= HYPERV_SYNTHETIC_MSR_MIN) &&
-        (msr <= HYPERV_SYNTHETIC_MSR_MAX))
+    if (vmcb->ExitInfo1 != 0)
     {
-        if (vmcb->ExitInfo1 != 0)
+        value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
+        if (ShvUtilAccessMsr(VpState->VpData, msr, TRUE, &value) == FALSE)
         {
-            value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
-            __writemsr(msr, value);
+            ShvSvmInjectGeneralProtection(VpState);
         }
-        else
-        {
-            value = __readmsr(msr);
-            VpState->VpRegs->Rax = (UINT32)value;
-            VpState->VpRegs->Rdx = value >> 32;
-        }
-        return;
     }
-
-    ShvSvmInjectGeneralProtection(VpState);
+    else
+    {
+        if (ShvUtilAccessMsr(VpState->VpData, msr, FALSE, &value) == FALSE)
+        {
+            ShvSvmInjectGeneralProtection(VpState);
+            return;
+        }
+        VpState->VpRegs->Rax = (UINT32)value;
+        VpState->VpRegs->Rdx = value >> 32;
+    }
 }
 
 VOID

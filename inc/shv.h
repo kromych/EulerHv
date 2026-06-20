@@ -195,6 +195,36 @@ ShvUtilIdle (
     _In_ PSHV_VP_DATA VpData
     );
 
+//
+// Read and write an MSR, returning FALSE if it raised #GP, which they need
+// ShvMsrFault as the #GP gate for. ShvUtilAccessMsr loads the idle IDT, which
+// has it
+//
+UINT8
+ShvMsrRead (
+    _In_ UINT32 Msr,
+    _Out_ UINT64* Value
+    );
+
+UINT8
+ShvMsrWrite (
+    _In_ UINT32 Msr,
+    _In_ UINT64 Value
+    );
+
+VOID
+ShvMsrFault (
+    VOID
+    );
+
+UINT8
+ShvUtilAccessMsr (
+    _In_ PSHV_VP_DATA VpData,
+    _In_ UINT32 Msr,
+    _In_ UINT8 Write,
+    _Inout_ UINT64* Value
+    );
+
 UINT8
 ShvUtilCountHypercall (
     _In_ PSHV_VP_DATA VpData,

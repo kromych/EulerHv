@@ -61,6 +61,7 @@ Environment:
 #define AMD64_TSS               9
 #define AMD64_INTERRUPT_GATE    14
 #define IDT_ENTRY_COUNT         256
+#define IDT_GENERAL_PROTECTION  13
 #define IDT_FIRST_INTERRUPT     32
 #ifndef PAGE_SIZE
 #define PAGE_SIZE               4096
@@ -363,9 +364,6 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 // The CPUID 4000000Ah EAX bit offering HvCallFlushGuestPhysicalAddressSpace
 //
 #define HYPERV_NESTED_GUEST_MAPPING_FLUSH       0x00040000
-
-#define HYPERV_SYNTHETIC_MSR_MIN                0x40000000
-#define HYPERV_SYNTHETIC_MSR_MAX                0x400000ff
 
 #define HYPERV_HYPERCALL_CODE_MASK              0xffff
 

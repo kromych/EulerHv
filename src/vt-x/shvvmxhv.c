@@ -424,26 +424,22 @@ ShvVmxHandleMsr (
     UINT64 value;
 
     //
-    // Only MSRs outside the MSR bitmap ranges exit. None exist on bare metal
-    // so raise #GP. Under Hyper-V pass its synthetic MSRs through from root
-    // mode, which exits to Hyper-V. A #GP from Hyper-V would be fatal, but a
-    // guest only uses the synthetic MSRs Hyper-V advertised
+    // Only MSRs outside the MSR bitmap ranges exit, such as the synthetic
+    // MSRs of Hyper-V. Access them from root mode, which exits to the
+    // hypervisor we are nested under, if any, and give the guest the #GP
+    // that the processor or that hypervisor raises
     //
     msr = (UINT32)VpState->VpRegs->Rcx;
-    if ((VpState->VpData->UnderlyingHypervisorIsHyperV == FALSE) ||
-        (msr < HYPERV_SYNTHETIC_MSR_MIN) ||
-        (msr > HYPERV_SYNTHETIC_MSR_MAX))
-    {
-        ShvVmxInjectGeneralProtection(VpState);
-        return;
-    }
-
     if (VpState->ExitReason == EXIT_REASON_MSR_READ)
     {
         //
         // RDMSR returns the value in EDX:EAX, clearing the upper halves
         //
-        value = __readmsr(msr);
+        if (ShvUtilAccessMsr(VpState->VpData, msr, FALSE, &value) == FALSE)
+        {
+            ShvVmxInjectGeneralProtection(VpState);
+            return;
+        }
         VpState->VpRegs->Rax = (UINT32)value;
         VpState->VpRegs->Rdx = value >> 32;
     }
@@ -453,7 +449,10 @@ ShvVmxHandleMsr (
         // WRMSR takes the value from EDX:EAX, ignoring the upper halves
         //
         value = VpState->VpRegs->Rdx << 32 | (UINT32)VpState->VpRegs->Rax;
-        __writemsr(msr, value);
+        if (ShvUtilAccessMsr(VpState->VpData, msr, TRUE, &value) == FALSE)
+        {
+            ShvVmxInjectGeneralProtection(VpState);
+        }
     }
 }
 
@@ -615,8 +614,8 @@ ShvVmxHandleExit (
     // VMCALL goes to Hyper-V as a hypercall when nested under it, and
     // otherwise fails like the other VMX instructions
     //
-    // RDMSR and WRMSR exit for MSRs outside the MSR bitmap. Hyper-V's
-    // synthetic MSRs pass through when nested under it, others raise #GP
+    // RDMSR and WRMSR exit for MSRs outside the MSR bitmap, which root mode
+    // accesses in the guest's place
     //
     // HLT, MONITOR and MWAIT exit when an underlying hypervisor makes them
     // mandatory, as Hyper-V does. MONITOR is a hint and MWAIT may return at

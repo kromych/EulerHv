@@ -54,6 +54,7 @@
   </ItemGroup>
   <ItemGroup>
     <MASM Include="..\src\masm\shvidlex64.asm" />
+    <MASM Include="..\src\masm\shvmsrx64.asm" />
     <MASM Include="..\src\svm\masm\shvsvmhvx64.asm" />
     <MASM Include="..\src\vt-x\masm\shvvmxhvx64.asm" />
     <MASM Include="..\src\$(Configuration)\shvosx64.asm"/>

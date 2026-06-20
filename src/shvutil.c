@@ -164,14 +164,37 @@ ShvUtilFlushTlb (
     __writecr4(cr4);
 }
 
+static
+VOID
+ShvUtilSetInterruptGate (
+    _Out_ PKIDTENTRY64 Gate,
+    _In_ UINT16 Selector,
+    _In_ uintptr_t Handler
+    )
+{
+    //
+    // A kernel interrupt gate on the current stack, which clears IF on entry
+    //
+    Gate->OffsetLow = (UINT16)Handler;
+    Gate->Selector = Selector;
+    Gate->IstIndex = 0;
+    Gate->Reserved0 = 0;
+    Gate->Type = AMD64_INTERRUPT_GATE;
+    Gate->Dpl = 0;
+    Gate->Present = 1;
+    Gate->OffsetMiddle = (UINT16)(Handler >> 16);
+    Gate->OffsetHigh = (UINT32)(Handler >> 32);
+    Gate->Reserved1 = 0;
+}
+
 VOID
 ShvUtilBuildIdleIdt (
     _In_ PSHV_VP_DATA VpData
     )
 {
     PKIDTENTRY64 idt = VpData->IdleIdt;
+    UINT16 selector = VpData->ContextFrame.SegCs & ~RPL_MASK;
     UINT32 vector;
-    uintptr_t stub;
 
     //
     // Build the IDT for idling when the guest halts. NMIs and exceptions keep
@@ -183,15 +206,19 @@ ShvUtilBuildIdleIdt (
             IDT_FIRST_INTERRUPT * sizeof(KIDTENTRY64));
     for (vector = IDT_FIRST_INTERRUPT; vector < IDT_ENTRY_COUNT; vector++)
     {
-        stub = (uintptr_t)ShvIdleStubs +
-               (vector - IDT_FIRST_INTERRUPT) * SHV_IDLE_STUB_SIZE;
-        idt[vector].OffsetLow = (UINT16)stub;
-        idt[vector].Selector = VpData->ContextFrame.SegCs & ~RPL_MASK;
-        idt[vector].Type = AMD64_INTERRUPT_GATE;
-        idt[vector].Present = 1;
-        idt[vector].OffsetMiddle = (UINT16)(stub >> 16);
-        idt[vector].OffsetHigh = (UINT32)(stub >> 32);
+        ShvUtilSetInterruptGate(&idt[vector],
+                                selector,
+                                (uintptr_t)ShvIdleStubs +
+                                (vector - IDT_FIRST_INTERRUPT) * SHV_IDLE_STUB_SIZE);
     }
+
+    //
+    // ShvUtilAccessMsr loads this IDT as well. Its #GP gate fails the MSR
+    // access, as nothing else raises #GP while the IDT is loaded
+    //
+    ShvUtilSetInterruptGate(&idt[IDT_GENERAL_PROTECTION],
+                            selector,
+                            (uintptr_t)ShvMsrFault);
 }
 
 UINT32
@@ -229,6 +256,34 @@ ShvUtilIdle (
     vector = ShvIdleWaitForInterrupt();
     __lidt(&hostIdtr.Limit);
     return vector;
+}
+
+UINT8
+ShvUtilAccessMsr (
+    _In_ PSHV_VP_DATA VpData,
+    _In_ UINT32 Msr,
+    _In_ UINT8 Write,
+    _Inout_ UINT64* Value
+    )
+{
+    KDESCRIPTOR hostIdtr;
+    KDESCRIPTOR idleIdtr;
+    UINT8 success;
+
+    //
+    // Read or write an MSR that exited, from root mode, and return FALSE if it
+    // raised #GP, which the guest then gets. In root mode the #GP would go to
+    // the OS's IDT, so load the idle IDT, whose #GP gate fails the access.
+    // Interrupts are held off in root mode, and NMIs and machine checks keep
+    // the OS's gates
+    //
+    idleIdtr.Base = VpData->IdleIdt;
+    idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;
+    __sidt(&hostIdtr.Limit);
+    __lidt(&idleIdtr.Limit);
+    success = (Write != FALSE) ? ShvMsrWrite(Msr, *Value) : ShvMsrRead(Msr, Value);
+    __lidt(&hostIdtr.Limit);
+    return success;
 }
 
 UINT8
