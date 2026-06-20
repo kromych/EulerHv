@@ -113,6 +113,15 @@ if (Test-Path $labKey) {
     $keys = 'C:\ProgramData\ssh\administrators_authorized_keys'
     Copy-Item -Path $labKey -Destination $keys -Force
     icacls.exe $keys /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+
+    #
+    # sshd also takes passwords by default. Its first start wrote the default
+    # configuration, where the first value of a setting wins, so turn them off
+    # at the top, ahead of the Match block at the end
+    #
+    $config = 'C:\ProgramData\ssh\sshd_config'
+    Set-Content -Path $config -Encoding Ascii -Value (@('PasswordAuthentication no') + @(Get-Content -Path $config))
+    Restart-Service sshd
     if (-not (Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Enabled True `
                             -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
