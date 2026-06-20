@@ -311,8 +311,9 @@ Administrator account. On first logon, `FirstLogon.ps1` makes these changes:
 ### Credentials
 
 The guest's `Administrator` and `lab` accounts use the password set in
-`LabCommon.ps1` (`SimpleVisor!Lab1`). The VM is meant to be a throwaway lab
-machine only.
+`LabCommon.ps1` (`SimpleVisor!Lab1`), or the one in the `SHV_LAB_PASSWORD`
+environment variable while creating the VM, which the lab scripts then need as
+well. The VM is meant to be a throwaway lab machine only.
 
 The lab test-signing certificate is created on first use in the current user's
 certificate store (`Cert:\CurrentUser\My`), with the subject

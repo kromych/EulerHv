@@ -20,14 +20,16 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
 $script:RepoRoot = Split-Path $PSScriptRoot -Parent
 
 #
-# Lab defaults. Each can be overridden by the matching parameter of the
-# scripts, or by the environment variable shown.
+# Lab defaults. Those the scripts take as parameters, such as VmName and
+# WdkRoot, can be overridden there, and those with an environment variable
+# shown by setting it. A password set that way is the one of the VMs created
+# while it is set.
 #
 $script:LabDefaults = @{
     VmName        = 'SimpleVisorLab'
     VmRoot        = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Virtual Machines'
     AdminUser     = 'Administrator'
-    AdminPassword = 'SimpleVisor!Lab1'
+    AdminPassword = if ($env:SHV_LAB_PASSWORD) { $env:SHV_LAB_PASSWORD } else { 'SimpleVisor!Lab1' }
     PipeName      = 'SimpleVisorLab'
     VncPort       = 5917
     Snapshot      = 'clean'
@@ -102,13 +104,17 @@ function Invoke-NativeCommand {
         [Parameter(Mandatory)] [string] $FilePath,
         [string[]] $Arguments = @(),
         [int] $TimeoutSec = 0,
-        [switch] $AllowFailure
+        [switch] $AllowFailure,
+        [string] $Secret
     )
 
     #
     # Run a native tool, capturing its output, and optionally giving up after a
     # timeout. The latter matters for guest operations: if SimpleVisor halts or
     # bugchecks the guest, vmrun would otherwise wait forever.
+    #
+    # An argument equal to Secret, such as the guest's password, is left out of
+    # the error message.
     #
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $FilePath
@@ -134,7 +140,10 @@ function Invoke-NativeCommand {
 
     if ((-not $AllowFailure) -and ($result.TimedOut -or ($result.ExitCode -ne 0))) {
         $what = if ($result.TimedOut) { "timed out after $TimeoutSec seconds" } else { "failed with exit code $($result.ExitCode)" }
-        throw "$(Split-Path $FilePath -Leaf) $($psi.Arguments) $what`n$($result.Output.Trim())"
+        $shown = ($Arguments | ForEach-Object {
+            if ($Secret -and ($_ -ceq $Secret)) { '<secret>' } else { ConvertTo-CommandLineArgument $_ }
+        }) -join ' '
+        throw "$(Split-Path $FilePath -Leaf) $shown $what`n$($result.Output.Trim())"
     }
     $result
 }
@@ -152,7 +161,8 @@ function Invoke-VmRun {
         $vmrunArgs += @('-gu', $LabDefaults.AdminUser, '-gp', $LabDefaults.AdminPassword)
     }
     Invoke-NativeCommand -FilePath (Get-VmwareTool 'vmrun.exe') -Arguments ($vmrunArgs + $Arguments) `
-                         -TimeoutSec $TimeoutSec -AllowFailure:$AllowFailure
+                         -TimeoutSec $TimeoutSec -AllowFailure:$AllowFailure `
+                         -Secret $(if ($Guest) { $LabDefaults.AdminPassword })
 }
 
 function Test-LabVmRunning {
