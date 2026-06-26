@@ -38,3 +38,12 @@ Loading the driver works as for SimpleVisor, see its
 [README](README.SimpleVisor.md#installation-on-windows).
 When unloading, the user mode utility prints number of VM exits and stats on some
 hypercalls.
+
+The UEFI build isn't maintained, and the labs neither build nor test it. It
+keeps SimpleVisor's limits: an OS loaded after it eventually crashes, as the
+image runs in boot services memory, which the OS takes back after
+ExitBootServices, and the processors other than the first call boot services,
+which the PI specification doesn't allow. Besides, `src\uefi\simplevisor.inf`
+builds an application, which EDK2 unloads as soon as its entry point returns,
+and `vs\uefi\uefi.default.props` expects VisualUefi's EDK2 at a fixed
+`EDK_PATH`.
