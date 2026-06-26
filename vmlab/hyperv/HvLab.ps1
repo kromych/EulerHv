@@ -109,35 +109,40 @@ function Invoke-HvGuest {
 function Copy-HvToGuest {
     param (
         [Parameter(Mandatory)] [string[]] $Path,
-        [Parameter(Mandatory)] [string] $Destination
+        [Parameter(Mandatory)] [string] $Destination,
+        [int] $TimeoutSec = 120
     )
 
     #
     # Copy files into an existing directory in the guest, over PowerShell
-    # Direct, which needs no Guest Service Interface, unlike Copy-VMFile
+    # Direct, which needs no Guest Service Interface, unlike Copy-VMFile. Pass
+    # their contents to Invoke-HvGuest, which gives up after a timeout, rather
+    # than to Copy-Item with a session, which waits forever for a guest that
+    # does not respond. The lab's files are small
     #
-    $session = New-PSSession -VMName $HvDefaults.VmName -Credential (Get-HvLabCredential)
-    try {
-        Copy-Item -ToSession $session -Path $Path -Destination $Destination -Force
-    }
-    finally {
-        Remove-PSSession -Session $session
-    }
+    $files = @($Path | ForEach-Object {
+        @{ Name = Split-Path $_ -Leaf; Data = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($_)) }
+    })
+    Invoke-HvGuest -TimeoutSec $TimeoutSec -ArgumentList $Destination, $files -ScriptBlock {
+        param ($Destination, $Files)
+        foreach ($file in $Files) {
+            [System.IO.File]::WriteAllBytes((Join-Path $Destination $file.Name), [Convert]::FromBase64String($file.Data))
+        }
+    } | Out-Null
 }
 
 function Copy-HvFromGuest {
     param (
         [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [string] $Destination
+        [Parameter(Mandatory)] [string] $Destination,
+        [int] $TimeoutSec = 120
     )
 
-    $session = New-PSSession -VMName $HvDefaults.VmName -Credential (Get-HvLabCredential)
-    try {
-        Copy-Item -FromSession $session -Path $Path -Destination $Destination -Force
+    $result = Invoke-HvGuest -TimeoutSec $TimeoutSec -ArgumentList $Path -ScriptBlock {
+        param ($Path)
+        [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($Path))
     }
-    finally {
-        Remove-PSSession -Session $session
-    }
+    [System.IO.File]::WriteAllBytes($Destination, [Convert]::FromBase64String($result.Output[0]))
 }
 
 function Test-HvGuestFile {

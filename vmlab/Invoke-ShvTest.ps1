@@ -101,7 +101,12 @@ foreach ($file in $files) {
     if (-not (Test-Path $file)) {
         throw "$file is missing. Run Build-LabArtifacts.ps1, or drop -SkipBuild."
     }
-    Invoke-VmRun -Guest -Arguments @('copyFileFromHostToGuest', $vmxPath, $file, "$GuestLabDir\$(Split-Path $file -Leaf)") | Out-Null
+
+    #
+    # vmrun waits forever for a guest that does not respond, such as one left
+    # broken into the debugger, so give up after a while, here and below
+    #
+    Invoke-VmRun -Guest -TimeoutSec 120 -Arguments @('copyFileFromHostToGuest', $vmxPath, $file, "$GuestLabDir\$(Split-Path $file -Leaf)") | Out-Null
 }
 
 Write-Host 'Loading and unloading SimpleVisor in the guest...'
@@ -132,7 +137,7 @@ if ($run.TimedOut) {
 
 $resultFile = Join-Path $outDir 'result.txt'
 Remove-Item -Path $resultFile -ErrorAction SilentlyContinue
-Invoke-VmRun -Guest -Arguments @('copyFileFromGuestToHost', $vmxPath, "$GuestLabDir\result.txt", $resultFile) | Out-Null
+Invoke-VmRun -Guest -TimeoutSec 120 -Arguments @('copyFileFromGuestToHost', $vmxPath, "$GuestLabDir\result.txt", $resultFile) | Out-Null
 
 $failed = Show-LabResult -Result (Read-LabResult -Path $resultFile) -ResultFile $resultFile -KdCheck $kdCheck `
                          -NoVmxHint ('The VM was created without virtualized VT-x/EPT, because the host runs a ' +
