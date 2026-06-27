@@ -1,0 +1,151 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="NT|x64">
+      <Configuration>NT</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="UEFI|x64">
+      <Configuration>UEFI</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{4C048BB2-7E8D-43BF-B29D-942461275023}</ProjectGuid>
+    <WindowsTargetPlatformVersion>$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
+    <RepoRoot>$(MSBuildThisFileDirectory)..\</RepoRoot>
+    <VcpkgEnabled>false</VcpkgEnabled>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='NT|x64'" Label="Configuration">
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>WDM</DriverType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='UEFI|x64'" Label="Configuration">
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" Condition="'$(Configuration)|$(Platform)'=='UEFI|x64'">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+  </ImportGroup>
+  <PropertyGroup>
+    <TargetName>euler</TargetName>
+    <OutDir>$(RepoRoot)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(RepoRoot)$(Platform)\$(Configuration)\obj\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='UEFI|x64'">
+    <IncludePath>$(EDK_PATH)\MdePkg\Include;$(EDK_PATH)\MdePkg\Include\X64;$(EDK_PATH)\ShellPkg\Include;$(EDK_PATH)\CryptoPkg\Include</IncludePath>
+    <LibraryPath>$(EDK_PATH)\..\EDK-II\$(Platform)\Release</LibraryPath>
+    <GenerateManifest />
+    <TargetExt>.efi</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup>
+    <IncludePath>$(RepoRoot)inc;$(RepoRoot)inc\vt-x;$(RepoRoot)inc\svm;$(IncludePath);$(VC_IncludePath)</IncludePath>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='NT|x64'">
+    <ClCompile>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <OmitFramePointers>true</OmitFramePointers>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <ControlFlowGuard>false</ControlFlowGuard>
+    </ClCompile>
+    <Link>
+      <EntryPointSymbol>DriverEntry</EntryPointSymbol>
+    </Link>
+    <DriverSign>
+      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
+    </DriverSign>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='UEFI|x64'">
+    <ClCompile>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MinSpace</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <OmitFramePointers>true</OmitFramePointers>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <ExceptionHandling>SyncCThrow</ExceptionHandling>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <ControlFlowGuard>false</ControlFlowGuard>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <ForcedIncludeFiles>$(EDK_PATH)\..\EDK-II\BaseLib\vshacks.h</ForcedIncludeFiles>
+      <CallingConvention />
+      <TreatWChar_tAsBuiltInType />
+      <StringPooling>true</StringPooling>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+      <ForceConformanceInForLoopScope />
+      <AdditionalOptions>/Gs32768 %(AdditionalOptions)</AdditionalOptions>
+      <ErrorReporting />
+      <FloatingPointModel />
+    </ClCompile>
+    <Link>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <AdditionalDependencies>UefiHiiLib.lib;UefiHiiServicesLib.lib;UefiSortLib.lib;UefiShellLib.lib;GlueLib.lib;BaseLib.lib;BaseDebugPrintErrorLevelLib.lib;BasePrintLib.lib;UefiLib.lib;UefiBootServicesTableLib.lib;UefiRuntimeServicesTableLib.lib;UefiDevicePathLibDevicePathProtocol.lib;UefiDebugLibConOut.lib;UefiMemoryLib.lib;UefiMemoryAllocationLib.lib;BaseSynchronizationLib.lib;UefiFileHandleLib.lib;UefiDriverEntryPoint.lib</AdditionalDependencies>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
+      <SubSystem>EFI Boot Service Driver</SubSystem>
+      <Driver>Driver</Driver>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding />
+      <LinkTimeCodeGeneration>UseFastLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <BaseAddress>0</BaseAddress>
+      <SectionAlignment>32</SectionAlignment>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+      <RandomizedBaseAddress />
+      <DataExecutionPrevention />
+      <ManifestFile />
+      <AllowIsolation />
+      <EnableUAC />
+      <UACExecutionLevel />
+      <UACUIAccess />
+      <TypeLibraryResourceID />
+      <AdditionalOptions>/OPT:ICF=10 /IGNORE:4001 /IGNORE:4254 %(AdditionalOptions)</AdditionalOptions>
+      <MergeSections>.rdata=.data</MergeSections>
+      <SpecifySectionAttributes>.xdata,D</SpecifySectionAttributes>
+      <LinkErrorReporting />
+      <ProfileGuidedDatabase />
+      <EntryPointSymbol>EfiMain</EntryPointSymbol>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\src\shv.c" />
+    <ClCompile Include="..\src\shvutil.c" />
+    <ClCompile Include="..\src\shvvp.c" />
+    <ClCompile Include="..\src\svm\shvsvm.c" />
+    <ClCompile Include="..\src\vt-x\shvvmx.c" />
+    <ClCompile Include="..\src\vt-x\shvvmxhv.c" />
+    <ClCompile Include="..\src\$(Configuration)\shvos.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\inc\ntint.h" />
+    <ClInclude Include="..\inc\shv.h" />
+    <ClInclude Include="..\inc\shv_x.h" />
+    <ClInclude Include="..\inc\svm\svm.h" />
+    <ClInclude Include="..\inc\vt-x\shvvmx.h" />
+    <ClInclude Include="..\inc\vt-x\vmx.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="..\src\masm\shvidlex64.asm" />
+    <MASM Include="..\src\masm\shvmsrx64.asm" />
+    <MASM Include="..\src\svm\masm\shvsvmhvx64.asm" />
+    <MASM Include="..\src\vt-x\masm\shvvmxhvx64.asm" />
+    <MASM Include="..\src\$(Configuration)\shvosx64.asm" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" Condition="'$(Configuration)|$(Platform)'=='UEFI|x64'">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+  </ImportGroup>
+  <Target Name="CheckEdkPath" BeforeTargets="PrepareForBuild" Condition="'$(Configuration)'=='UEFI' And '$(EDK_PATH)'==''">
+    <Error Text="The UEFI configuration needs the edk2 directory of VisualUefi in EDK_PATH, such as /p:EDK_PATH=C:\VisualUefi\edk2" />
+  </Target>
+</Project>

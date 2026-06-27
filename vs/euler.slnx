@@ -1,0 +1,8 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="NT" />
+    <BuildType Name="UEFI" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="euler.vcxproj" Id="4c048bb2-7e8d-43bf-b29d-942461275023" />
+</Solution>

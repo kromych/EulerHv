@@ -30,7 +30,9 @@ run Euler inside each.
   layers in `src\nt` and `src\uefi`.
 * `inc` has the shared headers, with those of each backend in `inc\vt-x` and
   `inc\svm`.
-* `vs` has the Visual Studio solution, project and property sheets. Builds go
+* `vs` has the Visual Studio solution and project, `euler.slnx` and
+  `euler.vcxproj`, which build with MSBuild, for example with
+  `msbuild vs\euler.slnx /p:Configuration=NT`. Builds go
   to `x64\<configuration>`, as `euler.sys` for Windows and `euler.efi` for UEFI.
 * `vmlab` has the test labs, see [vmlab\README.md](vmlab/README.md).
 
@@ -45,5 +47,4 @@ image runs in boot services memory, which the OS takes back after
 ExitBootServices, and the processors other than the first call boot services,
 which the PI specification doesn't allow. Besides, `src\uefi\simplevisor.inf`
 builds an application, which EDK2 unloads as soon as its entry point returns,
-and `vs\uefi\uefi.default.props` expects VisualUefi's EDK2 at a fixed
-`EDK_PATH`.
+and the UEFI configuration needs VisualUefi's EDK2, passed in `EDK_PATH`.
