@@ -124,7 +124,12 @@
     <ClCompile Include="..\src\svm\shvsvm.c" />
     <ClCompile Include="..\src\vt-x\shvvmx.c" />
     <ClCompile Include="..\src\vt-x\shvvmxhv.c" />
-    <ClCompile Include="..\src\$(Configuration)\shvos.c" />
+    <ClCompile Include="..\src\nt\shvos.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='UEFI|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\src\uefi\shvos.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='NT|x64'">true</ExcludedFromBuild>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\inc\ntint.h" />
@@ -139,7 +144,12 @@
     <MASM Include="..\src\masm\shvmsrx64.asm" />
     <MASM Include="..\src\svm\masm\shvsvmhvx64.asm" />
     <MASM Include="..\src\vt-x\masm\shvvmxhvx64.asm" />
-    <MASM Include="..\src\$(Configuration)\shvosx64.asm" />
+    <MASM Include="..\src\nt\shvosx64.asm">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='UEFI|x64'">true</ExcludedFromBuild>
+    </MASM>
+    <MASM Include="..\src\uefi\shvosx64.asm">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='NT|x64'">true</ExcludedFromBuild>
+    </MASM>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" Condition="'$(Configuration)|$(Platform)'=='UEFI|x64'">

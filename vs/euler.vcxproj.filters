@@ -1,0 +1,104 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="inc">
+      <UniqueIdentifier>{5C3A9EA1-6AE8-4E54-BBC1-A8691185144B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="inc\svm">
+      <UniqueIdentifier>{0E4EC3B4-28E8-4084-BDE7-DB36487F1752}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="inc\vt-x">
+      <UniqueIdentifier>{1C07F11F-67CE-46C5-ADB4-9F469D279E75}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{20732704-C01E-4DFA-AE67-F8F4C14604B7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\masm">
+      <UniqueIdentifier>{E432FB43-A835-49DB-8AFF-DFE0C331927B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\nt">
+      <UniqueIdentifier>{8487E092-33FF-4273-AA5B-FB4E74A554F7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\svm">
+      <UniqueIdentifier>{D33FA818-9970-45B7-953C-DAC3432E8B18}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\svm\masm">
+      <UniqueIdentifier>{4EAA6AC0-2279-4F8B-899D-7B065A03A7E3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\uefi">
+      <UniqueIdentifier>{5647FF9C-9C93-4209-98A4-06F553E1EEC7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\vt-x">
+      <UniqueIdentifier>{71438ECB-8950-458D-82B2-E4D6851C1749}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\vt-x\masm">
+      <UniqueIdentifier>{B9CB495A-0DCC-4614-B42C-C233B5329EB5}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\src\shv.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\shvutil.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\shvvp.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\svm\shvsvm.c">
+      <Filter>src\svm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\vt-x\shvvmx.c">
+      <Filter>src\vt-x</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\vt-x\shvvmxhv.c">
+      <Filter>src\vt-x</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\nt\shvos.c">
+      <Filter>src\nt</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\uefi\shvos.c">
+      <Filter>src\uefi</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\inc\ntint.h">
+      <Filter>inc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\inc\shv.h">
+      <Filter>inc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\inc\shv_x.h">
+      <Filter>inc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\inc\svm\svm.h">
+      <Filter>inc\svm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\inc\vt-x\shvvmx.h">
+      <Filter>inc\vt-x</Filter>
+    </ClInclude>
+    <ClInclude Include="..\inc\vt-x\vmx.h">
+      <Filter>inc\vt-x</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="..\src\masm\shvidlex64.asm">
+      <Filter>src\masm</Filter>
+    </MASM>
+    <MASM Include="..\src\masm\shvmsrx64.asm">
+      <Filter>src\masm</Filter>
+    </MASM>
+    <MASM Include="..\src\svm\masm\shvsvmhvx64.asm">
+      <Filter>src\svm\masm</Filter>
+    </MASM>
+    <MASM Include="..\src\vt-x\masm\shvvmxhvx64.asm">
+      <Filter>src\vt-x\masm</Filter>
+    </MASM>
+    <MASM Include="..\src\nt\shvosx64.asm">
+      <Filter>src\nt</Filter>
+    </MASM>
+    <MASM Include="..\src\uefi\shvosx64.asm">
+      <Filter>src\uefi</Filter>
+    </MASM>
+  </ItemGroup>
+</Project>
