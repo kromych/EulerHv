@@ -717,14 +717,21 @@ ShvSvmEntryHandler (
         //
         // #VMEXIT restored the EFER and SPEC_CTRL from before the first VMRUN,
         // and disabled DR7, so restore the guest ones. EFER keeps SVME until
-        // SVM is left
+        // SVM is left. With nested paging the guest's PAT is in the VMCB, and
+        // the processor's is still the one from before the first VMRUN, so
+        // restore that as well, and DR6, which the VMCB holds too
         //
         __writemsr(MSR_EFER, vmcb->Efer);
         if ((vpData->SvmFeatures & CPUID_SVM_FEATURES_EDX_V_SPEC_CTRL) != 0)
         {
             __writemsr(MSR_SPEC_CTRL, vmcb->SpecCtrl);
         }
+        if (vmcb->NpEnable != 0)
+        {
+            __writemsr(MSR_PAT, vmcb->Pat);
+        }
         ShvSvmLeaveRootMode();
+        __writedr(6, vmcb->Dr6);
         __writedr(7, vmcb->Dr7);
 
         //
