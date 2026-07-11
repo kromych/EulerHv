@@ -124,6 +124,12 @@ typedef struct _SHV_VP_DATA
             UINT32 EptControls;
 
             //
+            // Whether SimpleVisor set CR4.VMXE for VMXON, which it then clears
+            // after VMXOFF. Otherwise another hypervisor was in VMX operation
+            //
+            UINT8 VmxSetVmxe;
+
+            //
             // The SVM features (CPUID 8000_000A EDX), number of ASIDs, the EFER
             // bits the guest may set and the guest's VM_HSAVE_PA. The nested
             // page table root is 0 without nested paging

@@ -218,8 +218,10 @@ ShvVmxEnterRootModeOnVp (
     Registers->Cr0 |= VpData->MsrData[6].LowPart;
 
     //
-    // Do the same for CR4
+    // Do the same for CR4, which sets VMXE. Remember whether it was clear, to
+    // clear it again after VMXOFF
     //
+    VpData->VmxSetVmxe = (Registers->Cr4 & CR4_VMXE) == 0;
     Registers->Cr4 &= VpData->MsrData[9].LowPart;
     Registers->Cr4 |= VpData->MsrData[8].LowPart;
 
@@ -234,6 +236,10 @@ ShvVmxEnterRootModeOnVp (
     //
     if (__vmx_on(&VpData->VmxOnPhysicalAddress))
     {
+        if (VpData->VmxSetVmxe != FALSE)
+        {
+            __writecr4(__readcr4() & ~CR4_VMXE);
+        }
         return FALSE;
     }
 
@@ -242,7 +248,7 @@ ShvVmxEnterRootModeOnVp (
     //
     if (__vmx_vmclear(&VpData->VmcsPhysicalAddress))
     {
-        __vmx_off();
+        ShvVmxOff(VpData);
         return FALSE;
     }
 
@@ -251,7 +257,7 @@ ShvVmxEnterRootModeOnVp (
     //
     if (__vmx_vmptrld(&VpData->VmcsPhysicalAddress))
     {
-        __vmx_off();
+        ShvVmxOff(VpData);
         return FALSE;
     }
 

@@ -56,6 +56,11 @@ ShvVmxLaunch (
     );
 
 VOID
+ShvVmxOff (
+    _In_ PSHV_VP_DATA VpData
+    );
+
+VOID
 ShvVmxHandleExit (
     _In_ PSHV_VP_STATE VpState
     );

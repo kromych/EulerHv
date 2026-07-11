@@ -38,6 +38,22 @@ ShvVmxResume (
     __vmx_vmresume();
 }
 
+VOID
+ShvVmxOff (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    //
+    // Leave VMX operation, and clear CR4.VMXE if SimpleVisor set it. Other
+    // hypervisors take VMXE for VMX being in use, and do not load
+    //
+    __vmx_off();
+    if (VpData->VmxSetVmxe != FALSE)
+    {
+        __writecr4(__readcr4() & ~CR4_VMXE);
+    }
+}
+
 uintptr_t
 FORCEINLINE
 ShvVmxRead (
@@ -111,7 +127,7 @@ ShvVmxLaunch (
     // did not proceed as planned.
     //
     failureCode = (INT32)ShvVmxRead(VM_INSTRUCTION_ERROR);
-    __vmx_off();
+    ShvVmxOff(VpData);
 
     //
     // Return the error back to the caller
@@ -814,7 +830,7 @@ ShvVmxEntryHandler (
         //
         // Turn off VMX root mode on this logical processor. We're done here.
         //
-        __vmx_off();
+        ShvVmxOff(vpData);
 
         //
         // The OS runs on VPID 0 again, whose mappings the guest never
