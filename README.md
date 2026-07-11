@@ -31,15 +31,50 @@ run Euler inside each.
 * `inc` has the shared headers, with those of each backend in `inc\vt-x` and
   `inc\svm`.
 * `vs` has the Visual Studio solution and project, `euler.slnx` and
-  `euler.vcxproj`, which build with MSBuild, for example with
-  `msbuild vs\euler.slnx /p:Configuration=NT`. Builds go
-  to `x64\<configuration>`, as `euler.sys` for Windows and `euler.efi` for UEFI.
+  `euler.vcxproj`. Builds go to `x64\<configuration>`, as `euler.sys` for
+  Windows and `euler.efi` for UEFI.
 * `vmlab` has the test labs, see [vmlab\README.md](vmlab/README.md).
+
+## Building
+
+Euler needs:
+
+* Visual Studio 2026 with the Desktop development with C++ workload, and the
+  MSVC x64/x86 Spectre-mitigated libraries, which driver builds link with.
+* The Windows Driver Kit with its Visual Studio extension, and the Windows SDK
+  of the same version, 10.0.26100 or later. The build uses the newest one
+  installed.
+
+In Visual Studio, open `vs\euler.slnx`, pick the `NT` configuration and build.
+
+From a Developer Command Prompt or Developer PowerShell for Visual Studio 2026,
+in the root of the repo:
+
+```
+msbuild vs\euler.slnx /p:Configuration=NT
+```
+
+`NT` is also the default. The build writes `euler.sys`, `euler.pdb` and
+`euler.cer` to `x64\NT`. It test-signs `euler.sys` with the WDK's test
+certificate, `WDKTestCert <user>`, which it creates on first use, and
+`euler.cer` is that certificate. Pass `/p:SignMode=Off` to leave the driver
+unsigned.
+
+Visual Studio 2022 builds Euler as well, with a WDK it has build tasks for. The
+10.0.28000 WDK only has them for Visual Studio 2026, so if it is installed, pass
+`/p:WindowsTargetPlatformVersion=10.0.26100.0` to use the 10.0.26100 one.
+
+The labs build with the Enterprise WDK instead, which needs no Visual Studio,
+see [vmlab\README.md](vmlab/README.md).
+
+## Running
 
 Loading the driver works as for SimpleVisor, see its
 [README](README.SimpleVisor.md#installation-on-windows).
 When unloading, the user mode utility prints number of VM exits and stats on some
 hypercalls.
+
+## UEFI
 
 The UEFI build isn't maintained, and the labs neither build nor test it. It
 keeps SimpleVisor's limits: an OS loaded after it eventually crashes, as the
@@ -47,4 +82,5 @@ image runs in boot services memory, which the OS takes back after
 ExitBootServices, and the processors other than the first call boot services,
 which the PI specification doesn't allow. Besides, `src\uefi\simplevisor.inf`
 builds an application, which EDK2 unloads as soon as its entry point returns,
-and the UEFI configuration needs VisualUefi's EDK2, passed in `EDK_PATH`.
+and the UEFI configuration needs VisualUefi's EDK2, passed in `EDK_PATH`, as
+with `msbuild vs\euler.slnx /p:Configuration=UEFI /p:EDK_PATH=<VisualUefi>\edk2`.
