@@ -452,9 +452,12 @@ ShvSvmSetupVmcbForVp (
 
     //
     // Intercept CPUID, HLT, the MSRs in the permission map and the SVM
-    // instructions. VMRUN must always be intercepted
+    // instructions. VMRUN must always be intercepted. Intercept INVD as well,
+    // which VT-x always exits on, as it would throw away the cached writes
+    // of the host along with the guest's
     //
     vmcb->InterceptMisc1 = SVM_INTERCEPT_CPUID |
+                           SVM_INTERCEPT_INVD |
                            SVM_INTERCEPT_HLT |
                            SVM_INTERCEPT_INVLPGA |
                            SVM_INTERCEPT_MSR_PROT;
@@ -1198,6 +1201,12 @@ ShvSvmHandleExit (
     {
     case VMEXIT_CPUID:
         ShvSvmHandleCpuid(VpState);
+        break;
+    case VMEXIT_INVD:
+        //
+        // Write back the caches rather than drop them, as on VT-x
+        //
+        __wbinvd();
         break;
     case VMEXIT_HLT:
         ShvSvmHandleHlt(VpState);
