@@ -143,6 +143,14 @@ ShvLoad (
     //
     if (callbackContext.InitCount != ShvOsGetActiveProcessorCount())
     {
+        //
+        // A processor that ran the callback and failed says why. Without one,
+        // a processor did not run it at all, such as one added meanwhile
+        //
+        if (callbackContext.FailureStatus == SHV_STATUS_SUCCESS)
+        {
+            callbackContext.FailureStatus = SHV_STATUS_NOT_PRESENT;
+        }
         ShvOsDebugPrint("The SHV failed to initialize (0x%lX) Failed CPU: %d\n",
                         callbackContext.FailureStatus, callbackContext.FailedCpu);
         ShvUnload();
