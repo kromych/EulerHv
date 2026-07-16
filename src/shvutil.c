@@ -451,17 +451,17 @@ ShvUtilMtrrGetMemoryType (
     )
 {
     UINT32 i;
+    UINT32 pass;
     UINT32 memoryType;
     UINT64 pageEnd;
-    UINT8 covered;
+    UINT64 covered;
 
     //
     // A large page has a single memory type, so combine the types of every
-    // MTRR it touches. Unless one of them covers the whole page, part of it
-    // may get the default type, so combine that too
+    // MTRR it touches. Unless they cover the whole page, part of it gets the
+    // default type, so combine that too
     //
     memoryType = MTRR_TYPE_MAX;
-    covered = FALSE;
     pageEnd = PageAddress + PageSize - 1;
 
     //
@@ -494,17 +494,34 @@ ShvUtilMtrrGetMemoryType (
         {
             continue;
         }
-
-        if ((VpData->MtrrData[i].PhysicalAddressMin <= PageAddress) &&
-            (VpData->MtrrData[i].PhysicalAddressMax >= pageEnd))
-        {
-            covered = TRUE;
-        }
         memoryType = ShvUtilMtrrCombineMemoryTypes(memoryType,
                                                    VpData->MtrrData[i].Type);
     }
 
-    if (covered == FALSE)
+    //
+    // The default type applies where no variable MTRR covers the page, which
+    // several of them can cover together. Walk the page from its start, past
+    // each MTRR that covers where the walk is. Each pass gets past one MTRR at
+    // least, so as many passes as MTRRs get to the end of the page if they
+    // cover it
+    //
+    covered = PageAddress;
+    for (pass = 0;
+         (pass < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0])) && (covered <= pageEnd);
+         pass++)
+    {
+        for (i = 0; i < sizeof(VpData->MtrrData) / sizeof(VpData->MtrrData[0]); i++)
+        {
+            if ((VpData->MtrrData[i].Enabled != FALSE) &&
+                (VpData->MtrrData[i].PhysicalAddressMin <= covered) &&
+                (VpData->MtrrData[i].PhysicalAddressMax >= covered))
+            {
+                covered = VpData->MtrrData[i].PhysicalAddressMax + 1;
+            }
+        }
+    }
+
+    if (covered <= pageEnd)
     {
         memoryType = ShvUtilMtrrCombineMemoryTypes(memoryType,
                                                    VpData->MtrrDefaultType);
