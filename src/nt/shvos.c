@@ -79,6 +79,15 @@ typedef struct _SHV_DPC_CONTEXT
 
 PVOID g_PowerCallbackRegistration;
 
+//
+// The power callback can run while DriverEntry loads the hypervisor, so both
+// take this lock to load or unload it. The hypervisor is unloaded while the
+// system sleeps
+//
+KMUTEX g_ShvLock;
+BOOLEAN g_ShvLoaded;
+BOOLEAN g_ShvSleeping;
+
 NTSTATUS
 FORCEINLINE
 ShvOsErrorToError (
@@ -208,20 +217,32 @@ PowerCallback (
     //
     // Check if this is S0->Sx, or Sx->S0
     //
+    KeWaitForSingleObject(&g_ShvLock, Executive, KernelMode, FALSE, NULL);
     if (ARGUMENT_PRESENT(Argument2))
     {
         //
-        // Reload the hypervisor
+        // Reload the hypervisor. If that fails, the system runs without it
+        // until the next resume
         //
-        ShvLoad();
+        g_ShvSleeping = FALSE;
+        if (g_ShvLoaded == FALSE)
+        {
+            g_ShvLoaded = (ShvLoad() == SHV_STATUS_SUCCESS);
+        }
     }
     else
     {
         //
-        // Unload the hypervisor
+        // Unload the hypervisor, if it runs
         //
-        ShvUnload();
+        g_ShvSleeping = TRUE;
+        if (g_ShvLoaded != FALSE)
+        {
+            ShvUnload();
+            g_ShvLoaded = FALSE;
+        }
     }
+    KeReleaseMutex(&g_ShvLock, FALSE);
 }
 
 VOID
@@ -364,14 +385,19 @@ DriverUnload (
     UNREFERENCED_PARAMETER(DriverObject);
 
     //
-    // Unregister the power callback. We would not have loaded without it
+    // Unregister the power callback. We would not have loaded without it.
+    // This waits for a callback that is running, so none runs from here on
     //
     ExUnregisterCallback(g_PowerCallbackRegistration);
 
     //
-    // Unload the hypervisor
+    // Unload the hypervisor, if it runs
     //
-    ShvUnload();
+    if (g_ShvLoaded != FALSE)
+    {
+        ShvUnload();
+        g_ShvLoaded = FALSE;
+    }
 }
 
 NTSTATUS
@@ -394,6 +420,7 @@ DriverEntry (
     // Make the driver (and SHV itself) unloadable
     //
     DriverObject->DriverUnload = DriverUnload;
+    KeInitializeMutex(&g_ShvLock, 0);
 
     //
     // Create the power state callback
@@ -427,13 +454,22 @@ DriverEntry (
     }
 
     //
-    // Load the hypervisor
+    // Load the hypervisor, unless the system is going to sleep, in which case
+    // the power callback loads it on resume
     //
-    status = ShvOsErrorToError(ShvLoad());
+    status = STATUS_SUCCESS;
+    KeWaitForSingleObject(&g_ShvLock, Executive, KernelMode, FALSE, NULL);
+    if (g_ShvSleeping == FALSE)
+    {
+        status = ShvOsErrorToError(ShvLoad());
+        g_ShvLoaded = NT_SUCCESS(status);
+    }
+    KeReleaseMutex(&g_ShvLock, FALSE);
 
     //
     // If load of the hypervisor happened to fail, unregister previously registered
-    // power callback, otherwise we would get BSOD on shutdown.
+    // power callback, otherwise we would get BSOD on shutdown. Not under the lock,
+    // as this waits for a callback that may be waiting for it
     //
     if (!NT_SUCCESS(status))
     {
