@@ -1,6 +1,6 @@
 #
 # Runs inside the lab VM, elevated, from Invoke-ShvTest.ps1. It loads and
-# unloads SimpleVisor, running shvcheck.exe before, during and after, and writes
+# unloads SimpleVisor, running eulercheck.exe before, during and after, and writes
 # "phase.key=value" lines to C:\vmlab\result.txt for the host to check.
 #
 
@@ -26,7 +26,7 @@ function Write-Result {
 function Invoke-Phase {
     param ([string] $Phase)
 
-    & (Join-Path $labDir 'shvcheck.exe') | ForEach-Object { Write-Result "$Phase.$_" }
+    & (Join-Path $labDir 'eulercheck.exe') | ForEach-Object { Write-Result "$Phase.$_" }
 }
 
 function Get-BrowserCount {

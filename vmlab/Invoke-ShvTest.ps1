@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Reverts the lab VM to its clean snapshot, copies in the signed driver and
-    the shvcheck.exe probe, and runs guest\Test-ShvGuest.ps1 in the guest. The
+    the eulercheck.exe probe, and runs guest\Test-ShvGuest.ps1 in the guest. The
     probe runs before SimpleVisor is loaded, while it is loaded, and after it
     is unloaded, and this script then checks that:
 
@@ -93,7 +93,7 @@ if ($AttachDebugger -or -not $SkipDebuggerCheck) {
 Write-Host 'Copying the test files into the guest...'
 $files = @(
     (Join-Path $outDir 'euler.sys'),
-    (Join-Path $outDir 'shvcheck.exe'),
+    (Join-Path $outDir 'eulercheck.exe'),
     (Join-Path $outDir 'SimpleVisorLab.cer'),
     (Join-Path $PSScriptRoot 'guest\Test-ShvGuest.ps1')
 )

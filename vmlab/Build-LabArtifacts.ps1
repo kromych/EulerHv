@@ -4,10 +4,10 @@
 
 .DESCRIPTION
     Using the Enterprise WDK, builds SimpleVisor (NT configuration) and the
-    shvcheck.exe guest probe, and test-signs euler.sys with a self-signed lab
+    eulercheck.exe guest probe, and test-signs euler.sys with a self-signed lab
     certificate, created on first use in the current user's certificate store.
 
-    Everything goes to vmlab\out: euler.sys, euler.pdb, shvcheck.exe and
+    Everything goes to vmlab\out: euler.sys, euler.pdb, eulercheck.exe and
     SimpleVisorLab.cer.
 
 .PARAMETER WdkRoot
@@ -34,7 +34,7 @@ New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 #
 # Build both binaries from one EWDK command prompt. The EWDK environment only
 # covers the kernel-mode build, so add the SDK's user-mode headers and libraries
-# for shvcheck.exe. Test signing is done separately below, as the project's own
+# for eulercheck.exe. Test signing is done separately below, as the project's own
 # signing step fails with the current signtool.
 #
 $script = @"
@@ -43,12 +43,12 @@ call "$setupEnv" amd64 >nul 2>&1
 msbuild "$RepoRoot\vs\euler.vcxproj" /nologo /v:minimal /p:Configuration=NT /p:Platform=x64 /p:SignMode=Off || exit /b 1
 set "INCLUDE=%INCLUDE%;%WindowsSdkDir%Include\%Version_Number%\ucrt;%WindowsSdkDir%Include\%Version_Number%\um;%WindowsSdkDir%Include\%Version_Number%\shared"
 set "LIB=%LIB%;%WindowsSdkDir%Lib\%Version_Number%\ucrt\x64;%WindowsSdkDir%Lib\%Version_Number%\um\x64"
-cl /nologo /W4 /WX /O2 /MT "$PSScriptRoot\guest\shvcheck.c" /Fe:"$OutDir\shvcheck.exe" /Fo:"$OutDir\\" || exit /b 1
+cl /nologo /W4 /WX /O2 /MT "$PSScriptRoot\guest\eulercheck.c" /Fe:"$OutDir\eulercheck.exe" /Fo:"$OutDir\\" || exit /b 1
 "@
 $scriptPath = Join-Path ([System.IO.Path]::GetTempPath()) "shvlab-build-$PID.cmd"
 [System.IO.File]::WriteAllText($scriptPath, $script)
 try {
-    Write-Host 'Building SimpleVisor and shvcheck.exe...'
+    Write-Host 'Building SimpleVisor and eulercheck.exe...'
     $build = Invoke-NativeCommand -FilePath $env:ComSpec -Arguments @('/c', $scriptPath) -AllowFailure
     if ($build.ExitCode -ne 0) {
         throw "The build failed:`n$($build.Output)"
@@ -57,7 +57,7 @@ try {
 finally {
     Remove-Item -Path $scriptPath -ErrorAction SilentlyContinue
 }
-Remove-Item -Path (Join-Path $OutDir 'shvcheck.obj') -ErrorAction SilentlyContinue
+Remove-Item -Path (Join-Path $OutDir 'eulercheck.obj') -ErrorAction SilentlyContinue
 Copy-Item -Path (Join-Path $RepoRoot 'x64\NT\euler.sys'), (Join-Path $RepoRoot 'x64\NT\euler.pdb') -Destination $OutDir
 
 #

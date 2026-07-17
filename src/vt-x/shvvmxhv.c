@@ -263,7 +263,7 @@ ShvVmxHandleCpuid (
     }
 
     //
-    // Magic CPUID sequence to detect SimpleVisor, as vmlab\guest\shvcheck.c
+    // Magic CPUID sequence to detect SimpleVisor, as vmlab\guest\eulercheck.c
     // does. A leaf of its own keeps the interface leaf of an underlying
     // hypervisor intact, such as Hv#1
     //
@@ -279,7 +279,7 @@ ShvVmxHandleCpuid (
 
     //
     // Magic CPUID sequence to read this processor's VM-Exit counters, as
-    // vmlab\guest\shvcheck.c does, one exit reason (EXIT_REASON_* in vmx.h) per
+    // vmlab\guest\eulercheck.c does, one exit reason (EXIT_REASON_* in vmx.h) per
     // call, given in the low 16 bits of ECX. Returns the count in EBX:EAX, and
     // the number of counters in ECX. This exit is already counted.
     //

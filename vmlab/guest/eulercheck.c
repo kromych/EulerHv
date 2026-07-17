@@ -4,7 +4,7 @@ Copyright (c) Roman Kisel 2026.  All rights reserved.
 
 Module Name:
 
-    shvcheck.c
+    eulercheck.c
 
 Abstract:
 

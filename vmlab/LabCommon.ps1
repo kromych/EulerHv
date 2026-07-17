@@ -457,7 +457,7 @@ function Show-LabResult {
         (& $get 'before.waitpkg'), (& $get 'loaded.waitpkg'), (& $get 'loaded.waitpkg_exec'))
 
     #
-    # The VM-Exits SimpleVisor handled until shvcheck.exe ran while it was
+    # The VM-Exits SimpleVisor handled until eulercheck.exe ran while it was
     # loaded, per exit reason (EXIT_REASON_* in vmx.h, or ShvSvmExitIndex
     # for SVM)
     #
