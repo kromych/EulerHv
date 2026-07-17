@@ -71,6 +71,14 @@ param (
 
 if (-not $VmName) { $VmName = $LabDefaults.VmName }
 if (-not $VmRoot) { $VmRoot = $LabDefaults.VmRoot }
+
+#
+# The VM's directory is VmName under VmRoot, which -Force deletes, so keep
+# VmName to a plain name
+#
+if ($VmName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+    throw "The VM name '$VmName' may only have letters, digits, '.', '_' and '-', and must start with a letter or digit."
+}
 $IsoPath = (Resolve-Path $IsoPath).Path
 
 function Write-Vmx {
@@ -186,6 +194,14 @@ $vmxPath = Get-LabVmx -VmName $VmName -VmRoot $VmRoot
 if (Test-Path $vmDir) {
     if (-not $Force) {
         throw "$vmDir already exists. Pass -Force to delete and recreate the VM."
+    }
+
+    #
+    # Only delete what this script creates: a directory with the VM in it, or
+    # with its install ISO, if creating the VM failed before
+    #
+    if (-not ((Test-Path $vmxPath) -or (Test-Path (Join-Path $vmDir "$VmName-install.iso")))) {
+        throw "$vmDir is not a lab VM's directory, so -Force leaves it alone. Delete it yourself if it should go."
     }
     if (Test-Path $vmxPath) {
         if (Test-LabVmRunning -Vmx $vmxPath) {
