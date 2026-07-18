@@ -71,8 +71,23 @@ see [vmlab\README.md](vmlab/README.md).
 
 Loading the driver works as for SimpleVisor, see its
 [README](README.SimpleVisor.md#installation-on-windows).
-When unloading, the user mode utility prints number of VM exits and stats on some
-hypercalls.
+When unloading, Euler prints to the kernel debugger how many VM-exits it
+handled per exit reason, and how many TLB flush hypercalls it forwarded.
+`vmlab\guest\eulercheck.c` reads the same counters while Euler runs.
+
+Typical counts, from the Hyper-V lab: Windows Server 2025 on 4 processors,
+nested under Hyper-V on Windows 11 24H2 on an Intel Core Ultra 9 185H, with
+Euler loaded for about 20 seconds while a web browser runs. That's 81,121
+VM-exits, about 1,000 per processor per second:
+
+| VM-exit (VT-x exit reason) | Count | What Euler does |
+|---|---:|---|
+| CPUID (10) | 5,639 | Runs CPUID itself, and adjusts the result, such as with the Hypervisor Present-bit |
+| HLT (12) | 5,073 | Idles in Hyper-V's guest idle MSR. Hyper-V makes HLT exits mandatory |
+| VMCALL (18) | 15,908 | Passes the hypercall through to Hyper-V. 6,784 of them flushed the TLB (1,414 HvCallFlushVirtualAddressSpace and 5,370 HvCallFlushVirtualAddressList), after which Euler also flushed the guest's mappings on every processor |
+| RDMSR (31) | 2,755 | Passes the read of a synthetic MSR through to Hyper-V |
+| WRMSR (32) | 51,742 | Passes the write of a synthetic MSR through to Hyper-V |
+| VM-entry failure (33) | 4 | Once per processor, as Hyper-V refuses the HLT activity state. HLT idles in Euler from then on |
 
 ## UEFI
 
