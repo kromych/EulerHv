@@ -3,7 +3,9 @@
 # unattend\autounattend.xml). It prepares the guest for loading SimpleVisor,
 # sets up the channel the host drives the guest through, and reboots. After
 # that reboot, a RunOnce entry writes C:\vmlab\ready.txt, which tells the host
-# that the configuration is in effect.
+# that the configuration is in effect. If a setting the lab needs fails, it
+# neither reboots nor marks the VM ready, which leaves it for a look at
+# C:\vmlab\firstlogon.log, rather than making a broken VM the clean snapshot.
 #
 # The channel depends on the lab, as told by what the install media carries:
 #   - VMware: VMware Tools, from the Tools CD attached to the VM, for vmrun
@@ -27,28 +29,45 @@ Start-Transcript -Path (Join-Path $labDir 'firstlogon.log') -Append | Out-Null
 $channel = $false
 
 #
+# The settings that tests would otherwise fail on without saying why. The
+# channel needs no check: without it the host never sees the VM ready
+#
+$failures = @()
+function Invoke-Bcdedit {
+    bcdedit @args
+    if ($LASTEXITCODE -ne 0) {
+        $script:failures += "bcdedit $args exited with $LASTEXITCODE"
+    }
+}
+
+#
 # SimpleVisor is test-signed, so test signing must be on. This requires Secure
 # Boot to be off, which the VM configuration takes care of.
 #
-bcdedit /set testsigning on
+Invoke-Bcdedit /set testsigning on
 
 #
 # Enable kernel debugging over COM1, which the VM connects to a named pipe on
 # the host. SimpleVisor breaks into the debugger when it halts, so this is the
 # way to see why.
 #
-bcdedit /debug on
-bcdedit /dbgsettings serial debugport:1 baudrate:115200
+Invoke-Bcdedit /debug on
+Invoke-Bcdedit /dbgsettings serial debugport:1 baudrate:115200
 
 #
 # SimpleVisor cannot load if Windows itself runs under Hyper-V, which it does
 # whenever VBS (e.g. Memory Integrity) is on. Keep the hypervisor off.
 #
-bcdedit /set hypervisorlaunchtype off
+Invoke-Bcdedit /set hypervisorlaunchtype off
 $deviceGuard = 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard'
-New-Item -Path "$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Force | Out-Null
-Set-ItemProperty -Path $deviceGuard -Name EnableVirtualizationBasedSecurity -Value 0 -Type DWord
-Set-ItemProperty -Path "$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Name Enabled -Value 0 -Type DWord
+try {
+    New-Item -Path "$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Force -ErrorAction Stop | Out-Null
+    Set-ItemProperty -Path $deviceGuard -Name EnableVirtualizationBasedSecurity -Value 0 -Type DWord -ErrorAction Stop
+    Set-ItemProperty -Path "$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Name Enabled -Value 0 -Type DWord -ErrorAction Stop
+}
+catch {
+    $failures += "Turning off VBS failed: $_"
+}
 
 #
 # Keep a bugcheck on screen instead of rebooting, so that it can be seen in a
@@ -128,8 +147,13 @@ if (Test-Path $labKey) {
     # at the top, ahead of the Match block at the end
     #
     $config = 'C:\ProgramData\ssh\sshd_config'
-    Set-Content -Path $config -Encoding Ascii -Value (@('PasswordAuthentication no') + @(Get-Content -Path $config))
-    Restart-Service sshd
+    try {
+        Set-Content -Path $config -Encoding Ascii -Value (@('PasswordAuthentication no') + @(Get-Content -Path $config -ErrorAction Stop)) -ErrorAction Stop
+        Restart-Service sshd -ErrorAction Stop
+    }
+    catch {
+        $failures += "Turning off sshd password logons failed: $_"
+    }
     if (-not (Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Enabled True `
                             -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
@@ -147,6 +171,16 @@ if (Test-Path (Join-Path $PSScriptRoot 'hyperv.txt')) {
 
 if (-not $channel) {
     Write-Warning 'Neither the VMware Tools CD, the OpenSSH key, nor PowerShell Direct was found; the host cannot drive this guest.'
+}
+
+#
+# Leave a VM that misses a setting as it is, without rebooting or marking it
+# ready. The host gives up waiting for it, and points at this log
+#
+if ($failures) {
+    Write-Warning "The VM is not marked ready, as setting it up failed:`n$($failures -join "`n")"
+    Stop-Transcript | Out-Null
+    exit 1
 }
 
 #

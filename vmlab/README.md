@@ -308,6 +308,11 @@ Administrator account. On first logon, `FirstLogon.ps1` makes these changes:
   Hyper-V lab needs neither, as PowerShell Direct is inbox.
 - Reboots.
 
+If turning on test signing or kernel debugging, turning off the hypervisor or
+VBS, or turning off SSH password logons fails, it neither reboots nor marks the
+VM ready. Creating the VM then times out, and `C:\vmlab\firstlogon.log` in the
+guest says what failed.
+
 ### Credentials
 
 The guest's `Administrator` and `lab` accounts use the password set in
