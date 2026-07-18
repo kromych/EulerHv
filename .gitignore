@@ -3,3 +3,15 @@ out/
 .vs
 .VC.db
 *.vcxproj.user
+
+# Lab VM disks and install media, and keys, wherever -OutDir or a copy puts them
+*.iso
+*.vhd
+*.vhdx
+*.vmdk
+*.img
+*.pfx
+*.p12
+*.pvk
+id_lab
+id_lab.pub
