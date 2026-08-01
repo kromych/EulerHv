@@ -28,6 +28,8 @@ Environment:
 #include <stdio.h>
 #include <string.h>
 
+#include "..\..\inc\shvcheck.h"
+
 static
 const char*
 TryWaitPkg (
@@ -115,8 +117,8 @@ ReportExitCounts (
                 continue;
             }
 
-            __cpuidex(cpuInfo, 0x41414141, 0x44444444);
-            if (cpuInfo[0] != ' vhS')
+            __cpuidex(cpuInfo, SHV_CPUID_LEAF, SHV_CPUID_DETECT);
+            if (cpuInfo[0] != SHV_CPUID_SIGNATURE)
             {
                 continue;
             }
@@ -124,7 +126,7 @@ ReportExitCounts (
 
             for (reason = 0; reason < MAX_EXIT_COUNTERS; reason++)
             {
-                __cpuidex(cpuInfo, 0x41414141, 0x45450000 | reason);
+                __cpuidex(cpuInfo, SHV_CPUID_LEAF, SHV_CPUID_EXIT_COUNTS | reason);
                 counters = min((UINT32)cpuInfo[2], MAX_EXIT_COUNTERS);
                 if (reason >= counters)
                 {
@@ -135,7 +137,7 @@ ReportExitCounts (
 
             for (reason = 0; reason < TLB_HYPERCALL_COUNTERS; reason++)
             {
-                __cpuidex(cpuInfo, 0x41414141, 0x46460000 | reason);
+                __cpuidex(cpuInfo, SHV_CPUID_LEAF, SHV_CPUID_TLB_COUNTS | reason);
                 tlbCounters = min((UINT32)cpuInfo[2], TLB_HYPERCALL_COUNTERS);
                 if (reason >= tlbCounters)
                 {
@@ -251,16 +253,16 @@ main (
     }
 
     //
-    // The magic SimpleVisor detection leaf, answered with ' vhS' only when
-    // SimpleVisor is loaded
+    // The magic SimpleVisor detection leaf, answered with the SimpleVisor
+    // signature only when SimpleVisor is loaded
     //
-    __cpuidex(cpuInfo, 0x41414141, 0x44444444);
-    printf("simplevisor=%d\n", cpuInfo[0] == ' vhS');
+    __cpuidex(cpuInfo, SHV_CPUID_LEAF, SHV_CPUID_DETECT);
+    printf("simplevisor=%d\n", cpuInfo[0] == SHV_CPUID_SIGNATURE);
 
     //
     // The VM-Exits SimpleVisor handled so far, while it is loaded
     //
-    if (cpuInfo[0] == ' vhS')
+    if (cpuInfo[0] == SHV_CPUID_SIGNATURE)
     {
         ReportExitCounts();
     }

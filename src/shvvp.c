@@ -436,14 +436,14 @@ ShvVpUnloadCallback (
     // and free it.
     //
     cpuInfo[0] = cpuInfo[1] = 0;
-    __cpuidex(cpuInfo, 0x41414141, 0x42424242);
+    __cpuidex(cpuInfo, SHV_CPUID_LEAF, SHV_CPUID_UNLOAD);
 
     //
     // If SimpleVisor is disabled for some reason, CPUID will return the values
     // of the highest valid CPUID. We use a magic value to make sure we really
     // are loaded and returned something valid.
     //
-    if (cpuInfo[2] == 0x43434343)
+    if (cpuInfo[2] == SHV_CPUID_UNLOAD_RESULT)
     {
         __analysis_assume((cpuInfo[0] != 0) && (cpuInfo[1] != 0));
         vpData = (PSHV_VP_DATA)((UINT64)cpuInfo[0] << 32 | (UINT32)cpuInfo[1]);

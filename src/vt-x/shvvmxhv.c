@@ -254,8 +254,8 @@ ShvVmxHandleCpuid (
     // in the expected function, but we may want to allow a separate "unload"
     // driver or code at some point.
     //
-    if ((VpState->VpRegs->Rax == 0x41414141) &&
-        (VpState->VpRegs->Rcx == 0x42424242) &&
+    if ((VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        (VpState->VpRegs->Rcx == SHV_CPUID_UNLOAD) &&
         ((ShvVmxRead(GUEST_CS_SELECTOR) & RPL_MASK) == DPL_SYSTEM))
     {
         VpState->ExitVm = TRUE;
@@ -267,10 +267,10 @@ ShvVmxHandleCpuid (
     // does. A leaf of its own keeps the interface leaf of an underlying
     // hypervisor intact, such as Hv#1
     //
-    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
-        ((UINT32)VpState->VpRegs->Rcx == 0x44444444))
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        ((UINT32)VpState->VpRegs->Rcx == SHV_CPUID_DETECT))
     {
-        VpState->VpRegs->Rax = ' vhS';
+        VpState->VpRegs->Rax = SHV_CPUID_SIGNATURE;
         VpState->VpRegs->Rbx = 0;
         VpState->VpRegs->Rcx = 0;
         VpState->VpRegs->Rdx = 0;
@@ -283,10 +283,11 @@ ShvVmxHandleCpuid (
     // call, given in the low 16 bits of ECX. Returns the count in EBX:EAX, and
     // the number of counters in ECX. This exit is already counted.
     //
-    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
-        (((UINT32)VpState->VpRegs->Rcx & 0xFFFF0000) == 0x45450000))
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        (((UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_SELECTOR_MASK) ==
+         SHV_CPUID_EXIT_COUNTS))
     {
-        reason = (UINT32)VpState->VpRegs->Rcx & 0xFFFF;
+        reason = (UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_MASK;
         count = (reason < SHV_EXIT_REASON_COUNT) ?
                 VpState->VpData->ExitCounts[reason] : 0;
 
@@ -301,10 +302,11 @@ ShvVmxHandleCpuid (
     // Likewise for the TLB flush hypercalls forwarded to Hyper-V, one
     // ShvTlbHypercall per call, given in the low 16 bits of ECX
     //
-    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
-        (((UINT32)VpState->VpRegs->Rcx & 0xFFFF0000) == 0x46460000))
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        (((UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_SELECTOR_MASK) ==
+         SHV_CPUID_TLB_COUNTS))
     {
-        reason = (UINT32)VpState->VpRegs->Rcx & 0xFFFF;
+        reason = (UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_MASK;
         count = (reason < ShvTlbHypercallCount) ?
                 VpState->VpData->TlbHypercallCounts[reason] : 0;
 
@@ -377,7 +379,7 @@ ShvVmxHandleCpuid (
         // Return our interface identifier. When nested pass the underlying
         // hypervisor's through
         //
-        cpu_info[0] = ' vhS';
+        cpu_info[0] = SHV_CPUID_SIGNATURE;
     }
 
     //
@@ -793,7 +795,7 @@ ShvVmxEntryHandler (
         //
         Context->Rax = (uintptr_t)vpData >> 32;
         Context->Rbx = (uintptr_t)vpData & 0xFFFFFFFF;
-        Context->Rcx = 0x43434343;
+        Context->Rcx = SHV_CPUID_UNLOAD_RESULT;
 
         //
         // Perform any OS-specific CPU uninitialization work

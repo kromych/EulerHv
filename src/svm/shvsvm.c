@@ -708,7 +708,7 @@ ShvSvmEntryHandler (
     {
         Context->Rax = (uintptr_t)vpData >> 32;
         Context->Rbx = (uintptr_t)vpData & 0xFFFFFFFF;
-        Context->Rcx = 0x43434343;
+        Context->Rcx = SHV_CPUID_UNLOAD_RESULT;
 
         ShvOsUnprepareProcessor(vpData);
 
@@ -925,8 +925,8 @@ ShvSvmHandleCpuid (
     //
     // Magic CPUID sequence to unload SimpleVisor, from ring 0
     //
-    if ((VpState->VpRegs->Rax == 0x41414141) &&
-        (VpState->VpRegs->Rcx == 0x42424242) &&
+    if ((VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        (VpState->VpRegs->Rcx == SHV_CPUID_UNLOAD) &&
         (VpState->VpData->Vmcb.Cpl == DPL_SYSTEM))
     {
         VpState->ExitVm = TRUE;
@@ -936,10 +936,10 @@ ShvSvmHandleCpuid (
     //
     // Magic CPUID sequence to detect SimpleVisor
     //
-    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
-        ((UINT32)VpState->VpRegs->Rcx == 0x44444444))
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        ((UINT32)VpState->VpRegs->Rcx == SHV_CPUID_DETECT))
     {
-        VpState->VpRegs->Rax = ' vhS';
+        VpState->VpRegs->Rax = SHV_CPUID_SIGNATURE;
         VpState->VpRegs->Rbx = 0;
         VpState->VpRegs->Rcx = 0;
         VpState->VpRegs->Rdx = 0;
@@ -950,10 +950,11 @@ ShvSvmHandleCpuid (
     // Magic CPUID sequence to read this processor's #VMEXIT counters, one
     // ShvSvmExitIndex per call, given in the low 16 bits of ECX
     //
-    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
-        (((UINT32)VpState->VpRegs->Rcx & 0xFFFF0000) == 0x45450000))
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        (((UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_SELECTOR_MASK) ==
+         SHV_CPUID_EXIT_COUNTS))
     {
-        reason = (UINT32)VpState->VpRegs->Rcx & 0xFFFF;
+        reason = (UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_MASK;
         count = (reason < SHV_EXIT_REASON_COUNT) ?
                 VpState->VpData->ExitCounts[reason] : 0;
 
@@ -967,10 +968,11 @@ ShvSvmHandleCpuid (
     //
     // Likewise for the TLB flush hypercalls forwarded to Hyper-V
     //
-    if (((UINT32)VpState->VpRegs->Rax == 0x41414141) &&
-        (((UINT32)VpState->VpRegs->Rcx & 0xFFFF0000) == 0x46460000))
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        (((UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_SELECTOR_MASK) ==
+         SHV_CPUID_TLB_COUNTS))
     {
-        reason = (UINT32)VpState->VpRegs->Rcx & 0xFFFF;
+        reason = (UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_MASK;
         count = (reason < ShvTlbHypercallCount) ?
                 VpState->VpData->TlbHypercallCounts[reason] : 0;
 
@@ -1034,7 +1036,7 @@ ShvSvmHandleCpuid (
         //
         // Return the SimpleVisor interface identifier
         //
-        cpu_info[0] = ' vhS';
+        cpu_info[0] = SHV_CPUID_SIGNATURE;
     }
 
     //
