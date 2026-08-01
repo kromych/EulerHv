@@ -216,8 +216,11 @@ static_assert(sizeof(SVM_NPT_HUGE_PDPTE) == sizeof(UINT64), "Huge NPDPTE Size Mi
 static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch");
 
 //
-// Intercept word 1 (VMCB offset 0x00C) and word 2 (VMCB offset 0x010)
+// Intercept word 1 (VMCB offset 0x00C) and word 2 (VMCB offset 0x010).
+// Intercepted interrupts are held pending until the VMM takes them with the
+// GIF set, which delivers them through the VMM's IDT
 //
+#define SVM_INTERCEPT_INTR                     (1UL << 0)
 #define SVM_INTERCEPT_CPUID                     (1UL << 18)
 #define SVM_INTERCEPT_INVD                      (1UL << 22)
 #define SVM_INTERCEPT_HLT                       (1UL << 24)
@@ -266,8 +269,11 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 
 //
 // SVM exit codes (VMCB offset 0x070). The codes match the intercept bit
-// positions, starting at 0x60 for the miscellaneous intercepts
+// positions, starting at 0x60 for the miscellaneous intercepts, so INTR
+// exits with 0x60
 //
+#define VMEXIT_INTR             0x60
+
 #define VMEXIT_CPUID            0x72
 #define VMEXIT_INVD             0x76
 #define VMEXIT_HLT              0x78

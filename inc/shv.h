@@ -180,6 +180,15 @@ ShvIdleStubs (
     VOID
     );
 
+//
+// Take one pending interrupt through the idle IDT, returning its vector, or
+// 0 if there was none. The idle IDT must not be loaded by the caller
+//
+UINT32
+ShvUtilTakeInterrupt (
+    _In_ PSHV_VP_DATA VpData
+    );
+
 UINT32
 ShvIdleWaitForInterrupt (
     VOID

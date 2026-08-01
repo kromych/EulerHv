@@ -454,9 +454,11 @@ ShvSvmSetupVmcbForVp (
     // Intercept CPUID, HLT, the MSRs in the permission map and the SVM
     // instructions. VMRUN must always be intercepted. Intercept INVD as well,
     // which VT-x always exits on, as it would throw away the cached writes
-    // of the host along with the guest's
+    // of the host along with the guest's. External interrupts are intercepted
+    // too, and held for the VMM
     //
-    vmcb->InterceptMisc1 = SVM_INTERCEPT_CPUID |
+    vmcb->InterceptMisc1 = SVM_INTERCEPT_INTR |
+                           SVM_INTERCEPT_CPUID |
                            SVM_INTERCEPT_INVD |
                            SVM_INTERCEPT_HLT |
                            SVM_INTERCEPT_INVLPGA |
@@ -878,6 +880,40 @@ ShvSvmInjectInvalidOpcode (
 }
 
 VOID
+ShvSvmHandleInterrupt (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSVM_VMCB vmcb = &VpState->VpData->Vmcb;
+    UINT32 vector;
+
+    //
+    // The INTR intercept holds every external interrupt pending until the
+    // VMM takes it: with the GIF set and interrupts on, the pending
+    // interrupt delivers through the idle IDT, whose stub hands back its
+    // vector, and the guest takes the injected interrupt unconditionally on
+    // the next VMRUN, ending it with an EOI in its handler. The exit is not
+    // tied to an instruction, so RIP stays where it is
+    //
+    VpState->SkipRipAdvance = TRUE;
+    __svm_stgi();
+    vector = ShvUtilTakeInterrupt(VpState->VpData);
+    __svm_clgi();
+    if (vector == 0)
+    {
+        //
+        // Nothing was taken, so the interrupt is still pending, and the
+        // next VMRUN exits again
+        //
+        return;
+    }
+    vmcb->InterruptShadow = 0;
+    vmcb->EventInj = SVM_EVENTINJ_VALID |
+                     SVM_EVENTINJ_TYPE_INTR |
+                     vector;
+}
+
+VOID
 ShvSvmHandleCpuid (
     _In_ PSHV_VP_STATE VpState
     )
@@ -1202,10 +1238,14 @@ ShvSvmHandleExit (
     //
     // Unlike VT-x, nested Hyper-V does not force MONITOR and MWAIT exits, and
     // there is no activity state to fail VM entry on. HLT exits so that the
-    // guest idles in the host, as on VT-x
+    // guest idles in the host, as on VT-x. External interrupts exit through
+    // the INTR intercept and are taken by the VMM and injected
     //
     switch (VpState->ExitReason)
     {
+    case VMEXIT_INTR:
+        ShvSvmHandleInterrupt(VpState);
+        break;
     case VMEXIT_CPUID:
         ShvSvmHandleCpuid(VpState);
         break;

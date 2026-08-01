@@ -222,7 +222,7 @@ ShvUtilBuildIdleIdt (
 }
 
 UINT32
-ShvUtilIdle (
+ShvUtilTakeInterrupt (
     _In_ PSHV_VP_DATA VpData
     )
 {
@@ -231,8 +231,28 @@ ShvUtilIdle (
     UINT32 vector;
 
     //
+    // Take one interrupt through the idle IDT, which the stubs hand back as
+    // its vector. CR8 is the guest's, so the local APIC only delivers
+    // interrupts the guest would take. Returns 0 without one, such as after
+    // an exception the OS's gate handled
+    //
+    idleIdtr.Base = VpData->IdleIdt;
+    idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;
+    __sidt(&hostIdtr.Limit);
+    __lidt(&idleIdtr.Limit);
+    vector = ShvIdleWaitForInterrupt();
+    __lidt(&hostIdtr.Limit);
+    return vector;
+}
+
+UINT32
+ShvUtilIdle (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    //
     // Halt until an interrupt comes in, and return its vector for the guest,
-    // or 0 if the processor woke up without one, such as after an NMI.
+    // or 0 if the processor woke up without one
     //
     // Under Hyper-V, read its guest idle MSR when allowed. It returns once an
     // interrupt is pending, even with interrupts disabled, so the interrupt
@@ -245,17 +265,10 @@ ShvUtilIdle (
     }
 
     //
-    // Otherwise halt. The host would deliver interrupts through the OS's IDT,
-    // so load the idle IDT, which takes the interrupt in a stub. CR8 is the
-    // guest's, so the local APIC only delivers interrupts the guest would take
+    // Otherwise halt. The host would deliver interrupts through the OS's
+    // IDT, so take them through the idle IDT instead
     //
-    idleIdtr.Base = VpData->IdleIdt;
-    idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;
-    __sidt(&hostIdtr.Limit);
-    __lidt(&idleIdtr.Limit);
-    vector = ShvIdleWaitForInterrupt();
-    __lidt(&hostIdtr.Limit);
-    return vector;
+    return ShvUtilTakeInterrupt(VpData);
 }
 
 UINT8
