@@ -440,10 +440,11 @@ ShvVmxHandleMsr (
     UINT64 value;
 
     //
-    // Only MSRs outside the MSR bitmap ranges exit, such as the synthetic
-    // MSRs of Hyper-V. Access them from root mode, which exits to the
-    // hypervisor we are nested under, if any, and give the guest the #GP
-    // that the processor or that hypervisor raises
+    // The MSR bitmap traps the MSRs in its ranges, and those outside them,
+    // such as the synthetic MSRs of Hyper-V, always exit. Access them from
+    // root mode, which exits to the hypervisor we are nested under, if any,
+    // and give the guest the #GP that the processor or that hypervisor
+    // raises
     //
     msr = (UINT32)VpState->VpRegs->Rcx;
     if (VpState->ExitReason == EXIT_REASON_MSR_READ)
