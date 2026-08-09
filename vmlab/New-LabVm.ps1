@@ -91,6 +91,9 @@ function Write-Vmx {
     #
     # Notable settings:
     #   vhv.enable              virtualize VT-x/EPT, so SimpleVisor can load
+    #   cpuid.1.ecx             force CPUID 1 ECX bit 21 (x2APIC) on, which
+    #                           the flush IPIs need; the other bits pass
+    #                           through, and '1' in the mask only sets its bit
     #   firmware, secureBoot    UEFI without Secure Boot, so test signing works
     #   serial0                 COM1 on a named pipe, for the kernel debugger.
     #                           The VM is the pipe server, and the debugger on
@@ -113,6 +116,7 @@ function Write-Vmx {
         'uefi.secureBoot.enabled'      = 'FALSE'
         'numvcpus'                     = [string] $CpuCount
         'cpuid.coresPerSocket'         = [string] $CpuCount
+        'cpuid.1.ecx'                  = '----:----:--1-:----:----:----:----:----'
         'memsize'                      = [string] $MemoryMB
         'vhv.enable'                   = $vhv
         'pciBridge0.present'           = 'TRUE'
@@ -213,9 +217,19 @@ if (Test-Path $vmDir) {
 }
 New-Item -ItemType Directory -Path $vmDir | Out-Null
 
+#
+# eulercheck.exe goes on the install media too, where FirstLogon.ps1 runs it
+# to enforce x2APIC, which the flush IPIs need
+#
+$eulercheck = Join-Path $LabDefaults.OutDir 'eulercheck.exe'
+if (-not (Test-Path $eulercheck)) {
+    throw "eulercheck.exe was not built to $($LabDefaults.OutDir). Run .\Build-LabArtifacts.ps1 first."
+}
+
 $installIso = Join-Path $vmDir "$VmName-install.iso"
 New-UnattendedIso -SourceIso $IsoPath -DestinationIso $installIso -ImageIndex $image.ImageIndex `
-                  -ComputerName $VmName -ProductKey $ProductKey -Locale $Locale -OscdimgPath $OscdimgPath
+                  -ComputerName $VmName -ProductKey $ProductKey -Locale $Locale -OscdimgPath $OscdimgPath `
+                  -ExtraFiles @(@{ Source = $eulercheck; Destination = 'eulercheck.exe' })
 
 $diskFile = "$VmName.vmdk"
 Write-Host 'Creating the virtual disk...'

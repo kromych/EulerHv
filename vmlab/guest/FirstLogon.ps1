@@ -59,6 +59,28 @@ Invoke-Bcdedit /dbgsettings serial debugport:1 baudrate:115200
 # whenever VBS (e.g. Memory Integrity) is on. Keep the hypervisor off.
 #
 Invoke-Bcdedit /set hypervisorlaunchtype off
+
+#
+# Force x2APIC, which the flush IPIs need. Windows enables it at boot when
+# the processor offers it, and this policy makes it do so whenever it can
+#
+Invoke-Bcdedit /set x2apicpolicy Enable
+
+#
+# The platform must expose x2APIC, which the BCD policy cannot conjure up.
+# The creation scripts put eulercheck.exe on the install media next to this
+# script, and it reports the CPUID bit
+#
+$eulercheck = Join-Path $PSScriptRoot 'eulercheck.exe'
+if (-not (Test-Path $eulercheck)) {
+    $failures += 'eulercheck.exe was not on the install media; run Build-LabArtifacts.ps1 before creating the VM'
+}
+else {
+    $x2apic = & $eulercheck | Where-Object { $_ -match '^x2apic_cpuid=' }
+    if ($x2apic -ne 'x2apic_cpuid=1') {
+        $failures += "The platform does not expose x2APIC to the guest (eulercheck said '$x2apic')"
+    }
+}
 $deviceGuard = 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard'
 try {
     New-Item -Path "$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Force -ErrorAction Stop | Out-Null

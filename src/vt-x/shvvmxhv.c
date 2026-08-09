@@ -447,13 +447,14 @@ ShvVmxHandleCpuid (
     //
     // Magic CPUID sequence to detect SimpleVisor, as vmlab\guest\eulercheck.c
     // does. A leaf of its own keeps the interface leaf of an underlying
-    // hypervisor intact, such as Hv#1
+    // hypervisor intact, such as Hv#1. EBX bit 0 reports whether this
+    // processor's local APIC is in x2APIC mode, which the flush IPIs need
     //
     if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
         ((UINT32)VpState->VpRegs->Rcx == SHV_CPUID_DETECT))
     {
         VpState->VpRegs->Rax = SHV_CPUID_SIGNATURE;
-        VpState->VpRegs->Rbx = 0;
+        VpState->VpRegs->Rbx = (VpState->VpData->X2ApicEnabled != FALSE);
         VpState->VpRegs->Rcx = 0;
         VpState->VpRegs->Rdx = 0;
         return;

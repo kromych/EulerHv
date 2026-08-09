@@ -78,10 +78,21 @@ New-Item -ItemType Directory -Path $labDir | Out-Null
 #
 $marker = Get-HvLabFile 'hyperv.txt'
 Set-Content -Path $marker -Value 'The host drives this guest through PowerShell Direct.'
+
+#
+# eulercheck.exe goes on the install media too, where FirstLogon.ps1 runs it
+# to enforce x2APIC, which the flush IPIs need
+#
+$eulercheck = Join-Path $LabDefaults.OutDir 'eulercheck.exe'
+if (-not (Test-Path $eulercheck)) {
+    throw "eulercheck.exe was not built to $($LabDefaults.OutDir). Run .\Build-LabArtifacts.ps1 first."
+}
+
 $installIso = Get-HvLabFile 'install.iso'
 New-UnattendedIso -SourceIso $IsoPath -DestinationIso $installIso -ImageIndex $image.ImageIndex `
                   -ComputerName $vmName -ProductKey $ProductKey -Locale $Locale -OscdimgPath $OscdimgPath `
-                  -ExtraFiles @(@{ Source = $marker; Destination = 'hyperv.txt' })
+                  -ExtraFiles @(@{ Source = $marker; Destination = 'hyperv.txt' },
+                                @{ Source = $eulercheck; Destination = 'eulercheck.exe' })
 Remove-Item -Path $marker
 
 #
@@ -89,6 +100,8 @@ Remove-Item -Path $marker
 #   generation 2            UEFI, with Secure Boot off, so test signing works
 #   static memory           nested virtualization rules out dynamic memory
 #   nested virtualization   expose VT-x, so SimpleVisor can load
+#   no CPU compatibility    the compatibility modes strip CPU features such
+#                           as x2APIC, which the flush IPIs need
 #   COM1                    on a named pipe, for the kernel debugger. Hyper-V
 #                           is the pipe server, and the debugger the client.
 #   no NIC                  PowerShell Direct goes over VMBus, so the guest
@@ -106,7 +119,8 @@ $disk = Get-HvLabFile 'disk.vhdx'
 $vm = New-VM -Name $vmName -Generation 2 -Path $LabDefaults.VmRoot -NoVHD -MemoryStartupBytes ([int64] $HvDefaults.MemoryMB * 1MB)
 Set-VM -VM $vm -StaticMemory -CheckpointType Standard -AutomaticCheckpointsEnabled $false `
        -AutomaticStopAction TurnOff -AutomaticStartAction Nothing
-Set-VMProcessor -VM $vm -Count $HvDefaults.CpuCount -ExposeVirtualizationExtensions $true
+Set-VMProcessor -VM $vm -Count $HvDefaults.CpuCount -ExposeVirtualizationExtensions $true `
+                -CompatibilityForMigrationEnabled $false -CompatibilityForOlderOperatingSystemsEnabled $false
 Get-VMNetworkAdapter -VM $vm | Remove-VMNetworkAdapter
 New-VHD -Path $disk -SizeBytes ([int64] $DiskGB * 1GB) -Dynamic | Out-Null
 $hdd = Add-VMHardDiskDrive -VM $vm -Path $disk -Passthru

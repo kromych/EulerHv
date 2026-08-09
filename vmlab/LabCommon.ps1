@@ -439,6 +439,7 @@ function Show-LabResult {
         @{ Name = 'Hypervisor interface leaf unchanged while loaded';   Pass = (& $get 'loaded.hv_interface') -eq (& $get 'before.hv_interface') }
         @{ Name = 'WAITPKG hidden, or usable, while loaded';            Pass = (& $get 'loaded.waitpkg_exec') -in @('ok', 'skipped') }
         @{ Name = 'SVM bit unchanged while loaded';                     Pass = (& $get 'loaded.svm') -eq (& $get 'before.svm') }
+        @{ Name = 'Guest runs in x2APIC mode while loaded';             Pass = (& $get 'loaded.x2apic') -eq '1' }
         @{ Name = 'VM-Exit counters readable while loaded';             Pass = ((& $get 'loaded.exits.processors') -match '^[1-9]') -and
                                                                                ((& $get 'loaded.exits.total') -match '^[1-9]') }
         @{ Name = 'Web browser started while loaded';                   Pass = (& $get 'browser.loaded') -match '^[1-9]' }
@@ -485,6 +486,9 @@ function Show-LabResult {
     }
     if (((& $get 'before.vmx') -ne '1') -and ((& $get 'before.svm') -ne '1')) {
         Write-Warning "The guest has neither VMX nor SVM, so SimpleVisor cannot load in it. $NoVmxHint"
+    }
+    if ((& $get 'loaded.x2apic') -ne '1') {
+        Write-Warning "The guest is not in x2APIC mode, so the flush IPIs cannot reach it. FirstLogon.ps1 sets the x2apicpolicy BCD option, which takes effect when the processor exposes x2APIC."
     }
     $failed = 0
     foreach ($check in $checks) {

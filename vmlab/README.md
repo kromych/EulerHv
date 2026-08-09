@@ -27,6 +27,8 @@ guest setup, the guest test and the checks:
   check this and say what to turn off.
 - **An Intel or AMD CPU.** SimpleVisor uses VT-x on Intel and SVM on AMD, and
   the guest test accepts either. The labs have only been run on Intel so far.
+  The CPU must support x2APIC, which every modern one does: the VM creation
+  enforces it on each platform, and fails otherwise.
 - **The Enterprise WDK**, used to build SimpleVisor, sign it and run the
   debugger. By default the scripts look for it in a `wdk` directory next to this
   repo. Set `SHV_WDK_ROOT` or pass `-WdkRoot` to use another location.
@@ -43,10 +45,14 @@ guest setup, the guest test and the checks:
 ```powershell
 cd vmlab
 
+# Every time: build the driver and the guest probe. Also do this before
+# creating a VM, as the creation checks the platform for x2APIC with the probe.
+.\Build-LabArtifacts.ps1
+
 # Once: create the VM. This takes about 20-40 minutes and is fully unattended.
 .\New-LabVm.ps1 -IsoPath D:\iso\Server2025_Eval.iso -ImageName 'Windows Server 2025 SERVERSTANDARD'
 
-# Every time: build, deploy, load, check, unload.
+# Every time: deploy, load, check, unload.
 .\Invoke-ShvTest.ps1
 ```
 
@@ -59,6 +65,7 @@ Underlying hypervisor: VMwareVMware (...); WAITPKG before/loaded: 1/1 (ok)
   PASS  SimpleVisor not detected before loading
   PASS  sc start simplevisor succeeded
   PASS  SimpleVisor detected while loaded
+  PASS  Guest runs in x2APIC mode while loaded
   ...
 ```
 

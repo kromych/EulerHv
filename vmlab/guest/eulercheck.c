@@ -106,6 +106,7 @@ ReportExitCounts (
     UINT32 processors;
     UINT32 reason;
     UINT64 total;
+    int x2Apic;
     WORD group;
     DWORD index;
 
@@ -114,13 +115,14 @@ ReportExitCounts (
     // the counters of the processor it runs on. So run on each processor in
     // turn, and add up the counters of those that SimpleVisor runs on, as
     // told by the detection leaf. The reads are CPUID exits themselves, and
-    // count too. Another leaf reads the TLB flush hypercalls it forwarded to
-    // Hyper-V the same way.
+    // count too. Other leaves read the TLB flush hypercalls it forwarded to
+    // Hyper-V and the IPIs it saw the same way.
     //
     counters = 0;
     tlbCounters = 0;
     ipiCounters = 0;
     processors = 0;
+    x2Apic = 1;
     GetThreadGroupAffinity(GetCurrentThread(), &previous);
     for (group = 0; group < GetActiveProcessorGroupCount(); group++)
     {
@@ -140,6 +142,12 @@ ReportExitCounts (
                 continue;
             }
             processors++;
+
+            //
+            // The detection leaf reports x2APIC mode in EBX bit 0, which
+            // every virtualized processor must have for the flush IPIs
+            //
+            x2Apic = x2Apic && ((cpuInfo[1] & 1) != 0);
 
             for (reason = 0; reason < MAX_EXIT_COUNTERS; reason++)
             {
@@ -188,6 +196,7 @@ ReportExitCounts (
         total += counts[reason];
     }
     printf("exits.processors=%u\n", processors);
+    printf("x2apic=%d\n", x2Apic);
     printf("exits.total=%llu\n", total);
     for (reason = 0; reason < counters; reason++)
     {
@@ -260,12 +269,20 @@ main (
     }
 
     //
-    // CPUID 1h: VMX, without which SimpleVisor cannot load on Intel, and the
-    // Hypervisor Present-bit, which SimpleVisor always sets
+    // CPUID 1h: VMX, without which SimpleVisor cannot load on Intel, the
+    // Hypervisor Present-bit, which SimpleVisor always sets, and x2APIC
+    // support (ECX bit 21), which the lab requires of the platform, as the
+    // flush IPIs need it. The full registers let the host scripts build a
+    // CPUID override for OpenVMM that forces x2APIC and keeps the rest
     //
     __cpuid(cpuInfo, 1);
     printf("vmx=%d\n", (cpuInfo[2] >> 5) & 1);
     printf("hypervisor_present=%d\n", (cpuInfo[2] >> 31) & 1);
+    printf("x2apic_cpuid=%d\n", (cpuInfo[2] >> 21) & 1);
+    printf("cpuid1_eax=0x%08X\n", (UINT32)cpuInfo[0]);
+    printf("cpuid1_ebx=0x%08X\n", (UINT32)cpuInfo[1]);
+    printf("cpuid1_ecx=0x%08X\n", (UINT32)cpuInfo[2]);
+    printf("cpuid1_edx=0x%08X\n", (UINT32)cpuInfo[3]);
 
     //
     // CPUID 80000001h: SVM, without which SimpleVisor cannot load on AMD, and
@@ -302,11 +319,12 @@ main (
     //
     // CPUID 40000003h under Hyper-V: the partition privileges, which decide
     // whether SimpleVisor idles in the guest idle MSR (EAX bit 10). CPUID
-    // 40000004h: the recommendations, of which those for hypercalls to switch
-    // address spaces and flush the TLB (EAX bits 0-2) keep SimpleVisor from
-    // loading without the guest mapping flush. CPUID 4000000Ah: the nested
-    // features, which decide whether it can flush the guest's mappings on
-    // every processor (EAX bit 18)
+    // 40000004h: the recommendations, of which the one for hypercalls to
+    // switch address spaces (EAX bit 0) used to keep SimpleVisor from
+    // loading, which it now handles by emulating the switch. CPUID
+    // 4000000Ah: the nested features, which decide whether it flushes the
+    // guest's mappings on every processor with Hyper-V's hypercall (EAX bit
+    // 18) or with its own IPIs
     //
     if (strcmp(iface, "Hv#1") == 0)
     {
