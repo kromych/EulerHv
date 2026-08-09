@@ -373,6 +373,43 @@ ShvVmxHandleInterruptWindow (
 }
 
 VOID
+ShvVmxInjectNmi (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Inject an NMI into the guest on the next VM entry, on the explicit
+    // command of eulercheck. The guest's NMI handler takes it. An NMI
+    // cannot be injected into an NMI handler, and VM entry rejects it with
+    // an NMI pending, so drop the injection in either case
+    //
+    if ((ShvVmxRead(GUEST_INTERRUPTIBILITY_INFO) &
+         (GUEST_INTR_STATE_NMI_BLOCKING | GUEST_INTR_STATE_NMI_PENDING)) != 0)
+    {
+        return;
+    }
+    __vmx_vmwrite(VM_ENTRY_INTR_INFO, INTR_INFO_VALID |
+                                      INTR_INFO_TYPE_NMI |
+                                      INTR_INFO_VECTOR_NMI);
+    VpState->VpData->IpiCounts[ShvIpiNmisInjected]++;
+}
+
+VOID
+ShvVmxHandleNmi (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // No NMI should reach a running guest: SimpleVisor sends none, and the
+    // only NMI the guest sees is the one eulercheck asks for, which is
+    // injected rather than delivered. If one exits anyway, halt for the
+    // debugger instead of dropping it, as a dropped NMI would hide whatever
+    // raised it
+    //
+    ShvVmxHandleFatalExit(VpState);
+}
+
+VOID
 ShvVmxHandleCpuid (
     _In_ PSHV_VP_STATE VpState
     )
@@ -392,6 +429,18 @@ ShvVmxHandleCpuid (
         ((ShvVmxRead(GUEST_CS_SELECTOR) & RPL_MASK) == DPL_SYSTEM))
     {
         VpState->ExitVm = TRUE;
+        return;
+    }
+
+    //
+    // Magic CPUID command to inject an NMI into this processor, which
+    // eulercheck uses to exercise the NMI path. The NMI delivers on the
+    // next VM entry, after the CPUID completes
+    //
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        ((UINT32)VpState->VpRegs->Rcx == SHV_CPUID_NMI))
+    {
+        ShvVmxInjectNmi(VpState);
         return;
     }
 
@@ -809,7 +858,9 @@ ShvVmxHandleExit (
     // External interrupts exit with their vector in the exit interruption
     // information, and are injected back when the guest can take them, or
     // held for the interrupt window otherwise. SimpleVisor's flush IPIs
-    // flush the guest's mappings and are dropped
+    // flush the guest's mappings and are dropped. NMIs exit with no
+    // exception bitmap set for anything else, and halt for the debugger, as
+    // no NMI should reach the guest
     //
     // HLT, MONITOR and MWAIT exit when an underlying hypervisor makes them
     // mandatory, as Hyper-V does. MONITOR is a hint and MWAIT may return at
@@ -822,6 +873,9 @@ ShvVmxHandleExit (
     //
     switch (VpState->ExitReason)
     {
+    case EXIT_REASON_EXCEPTION_NMI:
+        ShvVmxHandleNmi(VpState);
+        break;
     case EXIT_REASON_EXTERNAL_INTERRUPT:
         ShvVmxHandleInterrupt(VpState);
         break;

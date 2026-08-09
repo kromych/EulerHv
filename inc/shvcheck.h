@@ -40,6 +40,13 @@ Environment:
 #define SHV_CPUID_IPI_COUNTS           0x47470000
 
 //
+// The command to inject an NMI into this processor, which the guest's NMI
+// handler takes. SimpleVisor drops the other NMIs, so only this command
+// delivers one
+//
+#define SHV_CPUID_NMI                  0x48480000
+
+//
 // The counter calls take the counter index in the low 16 bits of ECX, and
 // return the count in EBX:EAX and the number of counters in ECX
 //

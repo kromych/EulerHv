@@ -28,7 +28,8 @@
     ;
     ; Halts with interrupts enabled until something wakes the processor up,
     ; and returns the vector of the interrupt the idle IDT took, or 0 if
-    ; there was none, such as after an NMI. The idle IDT must be loaded
+    ; there was none, such as after an exception the OS's gate handled. The
+    ; idle IDT must be loaded
     ;
     ShvIdleWaitForInterrupt PROC
     xor     eax, eax            ; no interrupt taken yet
@@ -56,5 +57,18 @@
     vector = vector + 1
     ENDM
     ShvIdleStubs ENDP
+
+    ;
+    ; The idle IDT's NMI gate. No NMI should arrive, and running the OS's
+    ; NMI handler in root mode would run its code on the hypervisor stack,
+    ; so break into the debugger and stop this processor. The interrupt
+    ; frame stays on the stack for the debugger
+    ;
+    ShvIdleNmiStub PROC
+    int     3
+    ShvIdleNmiStubHalt:
+    hlt
+    jmp     ShvIdleNmiStubHalt
+    ShvIdleNmiStub ENDP
 
     end

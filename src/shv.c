@@ -97,14 +97,17 @@ ShvUnload (
     if ((callbackContext.IpiCounts[ShvIpiIcrWrites] |
          callbackContext.IpiCounts[ShvIpiSelfIpiWrites] |
          callbackContext.IpiCounts[ShvIpiFlushIpisSent] |
-         callbackContext.IpiCounts[ShvIpiFlushIpisReceived]) != 0)
+         callbackContext.IpiCounts[ShvIpiFlushIpisReceived] |
+         callbackContext.IpiCounts[ShvIpiNmisInjected]) != 0)
     {
         ShvOsDebugPrint("The SHV saw IPIs: ICR writes %llu, self IPIs %llu, "
-                        "flush IPIs sent %llu, flush IPIs received %llu\n",
+                        "flush IPIs sent %llu, flush IPIs received %llu, "
+                        "NMIs injected %llu\n",
                         (UINT64)callbackContext.IpiCounts[ShvIpiIcrWrites],
                         (UINT64)callbackContext.IpiCounts[ShvIpiSelfIpiWrites],
                         (UINT64)callbackContext.IpiCounts[ShvIpiFlushIpisSent],
-                        (UINT64)callbackContext.IpiCounts[ShvIpiFlushIpisReceived]);
+                        (UINT64)callbackContext.IpiCounts[ShvIpiFlushIpisReceived],
+                        (UINT64)callbackContext.IpiCounts[ShvIpiNmisInjected]);
     }
 
     //

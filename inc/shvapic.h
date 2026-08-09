@@ -76,5 +76,11 @@ typedef enum _ShvIpiCounter
     //
     ShvIpiFlushIpisSent,
     ShvIpiFlushIpisReceived,
+
+    //
+    // NMIs injected on the explicit command of vmlab\guest\eulercheck.c,
+    // the only NMIs the guest sees. Any other NMI halts for the debugger
+    //
+    ShvIpiNmisInjected,
     ShvIpiCount
 } ShvIpiCounter;

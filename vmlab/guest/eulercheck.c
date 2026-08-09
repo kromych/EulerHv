@@ -83,6 +83,7 @@ static const char* IpiCounterNames[] =
     "self_ipis",
     "flush_sent",
     "flush_received",
+    "nmis_injected",
 };
 
 #define IPI_COUNTERS (sizeof(IpiCounterNames) / sizeof(IpiCounterNames[0]))
@@ -214,15 +215,49 @@ ReportExitCounts (
     }
 }
 
+//
+// The NMI injection command: "eulercheck nmi" has SimpleVisor inject an NMI
+// into this processor, which the guest's NMI handler takes. SimpleVisor
+// halts on the other NMIs, so this is the only way the guest sees one
+//
+static
+INT32
+InjectNmi (
+    VOID
+    )
+{
+    INT32 cpuInfo[4];
+
+    __cpuidex(cpuInfo, SHV_CPUID_LEAF, SHV_CPUID_DETECT);
+    if (cpuInfo[0] != SHV_CPUID_SIGNATURE)
+    {
+        printf("nmi=not_loaded\n");
+        return 1;
+    }
+
+    //
+    // The NMI delivers when the CPUID completes
+    //
+    __cpuidex(cpuInfo, SHV_CPUID_LEAF, SHV_CPUID_NMI);
+    printf("nmi=sent\n");
+    return 0;
+}
+
 int
 main (
-    VOID
+    INT32 argc,
+    CHAR* argv[]
     )
 {
     INT32 cpuInfo[4];
     char vendor[13];
     char iface[5];
     int waitPkg;
+
+    if ((argc > 1) && (strcmp(argv[1], "nmi") == 0))
+    {
+        return InjectNmi();
+    }
 
     //
     // CPUID 1h: VMX, without which SimpleVisor cannot load on Intel, and the

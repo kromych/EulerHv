@@ -460,10 +460,12 @@ ShvSvmSetupVmcbForVp (
     // Intercept CPUID, HLT, the MSRs in the permission map and the SVM
     // instructions. VMRUN must always be intercepted. Intercept INVD as well,
     // which VT-x always exits on, as it would throw away the cached writes
-    // of the host along with the guest's. External interrupts are intercepted
-    // too, and held for the VMM
+    // of the host along with the guest's. External interrupts and NMIs are
+    // intercepted too: the interrupts are held for the VMM, and the NMIs
+    // halt for the debugger
     //
     vmcb->InterceptMisc1 = SVM_INTERCEPT_INTR |
+                           SVM_INTERCEPT_NMI |
                            SVM_INTERCEPT_CPUID |
                            SVM_INTERCEPT_INVD |
                            SVM_INTERCEPT_HLT |
@@ -905,6 +907,36 @@ ShvSvmInjectInvalidOpcode (
 }
 
 VOID
+ShvSvmInjectNmi (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Inject an NMI into the guest on the next VMRUN, on the explicit
+    // command of eulercheck. The guest's NMI handler takes it
+    //
+    VpState->VpData->Vmcb.EventInj = SVM_EVENTINJ_VALID |
+                                     SVM_EVENTINJ_TYPE_NMI |
+                                     INTR_INFO_VECTOR_NMI;
+    VpState->VpData->IpiCounts[ShvIpiNmisInjected]++;
+}
+
+VOID
+ShvSvmHandleNmi (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // No NMI should reach a running guest: SimpleVisor sends none, and the
+    // only NMI the guest sees is the one eulercheck asks for, which is
+    // injected rather than delivered. If one exits anyway, halt for the
+    // debugger instead of dropping it, as a dropped NMI would hide whatever
+    // raised it
+    //
+    ShvSvmHandleFatalExit(VpState);
+}
+
+VOID
 ShvSvmFlushGuestMappings (
     _In_ PSHV_VP_DATA VpData
     )
@@ -984,6 +1016,18 @@ ShvSvmHandleCpuid (
         (VpState->VpData->Vmcb.Cpl == DPL_SYSTEM))
     {
         VpState->ExitVm = TRUE;
+        return;
+    }
+
+    //
+    // Magic CPUID command to inject an NMI into this processor, which
+    // eulercheck uses to exercise the NMI path. The NMI delivers on the
+    // next VMRUN, after the CPUID completes
+    //
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        ((UINT32)VpState->VpRegs->Rcx == SHV_CPUID_NMI))
+    {
+        ShvSvmInjectNmi(VpState);
         return;
     }
 
@@ -1331,11 +1375,15 @@ ShvSvmHandleExit (
     //
     // Unlike VT-x, nested Hyper-V does not force MONITOR and MWAIT exits, and
     // there is no activity state to fail VM entry on. HLT exits so that the
-    // guest idles in the host, as on VT-x. External interrupts exit through
-    // the INTR intercept and are taken by the VMM and injected
+    // guest idles in the host, as on VT-x. External interrupts and NMIs exit
+    // through their intercepts: the interrupts are taken by the VMM and
+    // injected, and the NMIs halt for the debugger
     //
     switch (VpState->ExitReason)
     {
+    case VMEXIT_NMI:
+        ShvSvmHandleNmi(VpState);
+        break;
     case VMEXIT_INTR:
         ShvSvmHandleInterrupt(VpState);
         break;

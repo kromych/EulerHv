@@ -341,11 +341,22 @@ ShvVmxSetupVmcsForVp (
     //
     // Exit on external interrupts, so that SimpleVisor sees the IPIs the
     // guest sends and its own flush IPIs, which otherwise the guest would
-    // take. There may also be pin-based options required by the processor.
-    // Use ShvUtilAdjustMsr to add those in
+    // take. Exit on NMIs as well and halt for the debugger, as no NMI
+    // should reach the guest. There may also be pin-based options required
+    // by the processor. Use ShvUtilAdjustMsr to add those in
     //
     pinControls = ShvUtilAdjustMsr(VpData->MsrData[13],
-                                   PIN_BASED_EXT_INTR_MASK);
+                                   PIN_BASED_EXT_INTR_MASK |
+                                   PIN_BASED_NMI_EXITING |
+                                   PIN_BASED_VIRTUAL_NMIS);
+    if ((pinControls & PIN_BASED_VIRTUAL_NMIS) == 0)
+    {
+        //
+        // Without virtual NMIs an exiting NMI is re-delivered on the next
+        // VM entry, so let NMIs reach the guest as before
+        //
+        pinControls &= ~PIN_BASED_NMI_EXITING;
+    }
     __vmx_vmwrite(PIN_BASED_VM_EXEC_CONTROL, pinControls);
 
     //

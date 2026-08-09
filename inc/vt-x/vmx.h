@@ -62,6 +62,7 @@ Environment:
 #define AMD64_TSS               9
 #define AMD64_INTERRUPT_GATE    14
 #define IDT_ENTRY_COUNT         256
+#define IDT_NMI                 2
 #define IDT_GENERAL_PROTECTION  13
 #define IDT_FIRST_INTERRUPT     32
 #ifndef PAGE_SIZE
@@ -276,9 +277,11 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE    0x04000000
 
 #define INTR_INFO_VECTOR_DB                     1
+#define INTR_INFO_VECTOR_NMI                    2
 #define INTR_INFO_VECTOR_UD                     6
 #define INTR_INFO_VECTOR_GP                     13
 #define INTR_INFO_TYPE_EXT_INTR                 (0 << 8)
+#define INTR_INFO_TYPE_NMI                      (2 << 8)
 #define INTR_INFO_TYPE_HARD_EXCEPTION           (3 << 8)
 #define INTR_INFO_DELIVER_CODE                  (1 << 11)
 #define INTR_INFO_VALID                         (1UL << 31)
@@ -588,6 +591,13 @@ typedef enum _VmcsField
 
 #define GUEST_INTR_STATE_STI            0x00000001
 #define GUEST_INTR_STATE_MOV_SS         0x00000002
+#define GUEST_INTR_STATE_NMI_BLOCKING   0x00000008
+
+//
+// With virtual NMIs, the processor records an exiting NMI as pending in bit
+// 31 of the guest interruptibility state instead of delivering it
+//
+#define GUEST_INTR_STATE_NMI_PENDING    (1UL << 31)
 
 #define GUEST_PENDING_DBG_BS            (1ULL << 14)
 

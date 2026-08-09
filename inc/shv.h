@@ -110,6 +110,16 @@ ShvSvmIsAmd (
     VOID
     );
 
+VOID
+ShvVmxInjectNmi (
+    _In_ PSHV_VP_STATE VpState
+    );
+
+VOID
+ShvSvmInjectNmi (
+    _In_ PSHV_VP_STATE VpState
+    );
+
 SHV_CPU_CALLBACK ShvVpLoadCallback;
 SHV_CPU_CALLBACK ShvVpUnloadCallback;
 
@@ -195,6 +205,15 @@ ShvUtilFlushTlb (
 
 VOID
 ShvIdleStubs (
+    VOID
+    );
+
+//
+// The idle IDT's NMI gate, which stops the processor for the debugger, as
+// no NMI should arrive
+//
+VOID
+ShvIdleNmiStub (
     VOID
     );
 

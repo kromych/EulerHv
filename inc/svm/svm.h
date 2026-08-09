@@ -221,6 +221,7 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 // GIF set, which delivers them through the VMM's IDT
 //
 #define SVM_INTERCEPT_INTR                     (1UL << 0)
+#define SVM_INTERCEPT_NMI                      (1UL << 1)
 #define SVM_INTERCEPT_CPUID                     (1UL << 18)
 #define SVM_INTERCEPT_INVD                      (1UL << 22)
 #define SVM_INTERCEPT_HLT                       (1UL << 24)
@@ -272,9 +273,10 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 //
 // SVM exit codes (VMCB offset 0x070). The codes match the intercept bit
 // positions, starting at 0x60 for the miscellaneous intercepts, so INTR
-// exits with 0x60
+// exits with 0x60 and NMI with 0x61
 //
 #define VMEXIT_INTR             0x60
+#define VMEXIT_NMI              0x61
 
 #define VMEXIT_CPUID            0x72
 #define VMEXIT_INVD             0x76
@@ -302,6 +304,7 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 // on this too, never clearing EVENTINJ after an exit
 //
 #define SVM_EVENTINJ_TYPE_INTR          (0 << 8)
+#define SVM_EVENTINJ_TYPE_NMI           (2 << 8)
 #define SVM_EVENTINJ_TYPE_EXCEPTION     (3 << 8)
 #define SVM_EVENTINJ_DELIVER_ERROR_CODE (1 << 11)
 #define SVM_EVENTINJ_VALID              (1UL << 31)

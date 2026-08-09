@@ -81,6 +81,10 @@ IPIs the guest sends through the local APIC's ICR. It counts those and its
 own flush IPIs, which it sends to flush the guest's mappings on every
 processor when it forwards the guest's TLB flush hypercalls and Hyper-V
 offers no flush hypercall of its own. The flush IPIs never reach the guest.
+Neither do NMIs: Euler never sends one itself, and the only NMI the guest
+sees is the one `eulercheck nmi` asks Euler to inject on demand. An NMI
+that reaches a running guest anyway halts Euler for the debugger, as
+Windows crashes on NMIs.
 
 Typical counts, from the Hyper-V lab: Windows Server 2025 on 4 processors,
 nested under Hyper-V on Windows 11 24H2 on an Intel Core Ultra 9 185H, with

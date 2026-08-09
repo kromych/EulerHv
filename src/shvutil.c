@@ -197,13 +197,21 @@ ShvUtilBuildIdleIdt (
     UINT32 vector;
 
     //
-    // Build the IDT for idling when the guest halts. NMIs and exceptions keep
-    // the OS's gates, as with the host IDT, and interrupts go to the idle
+    // Build the IDT for idling when the guest halts. Exceptions keep the
+    // OS's gates, as with the host IDT, and interrupts go to the idle
     // stubs
     //
     __movsb((UINT8*)idt,
             VpData->SpecialRegisters.Idtr.Base,
             IDT_FIRST_INTERRUPT * sizeof(KIDTENTRY64));
+
+    //
+    // No NMI should arrive, so stop this processor for the debugger rather
+    // than run the OS's NMI handler in root mode
+    //
+    ShvUtilSetInterruptGate(&idt[IDT_NMI],
+                            selector,
+                            (uintptr_t)ShvIdleNmiStub);
     for (vector = IDT_FIRST_INTERRUPT; vector < IDT_ENTRY_COUNT; vector++)
     {
         ShvUtilSetInterruptGate(&idt[vector],
@@ -306,8 +314,8 @@ ShvUtilAccessMsr (
     // Read or write an MSR that exited, from root mode, and return FALSE if it
     // raised #GP, which the guest then gets. In root mode the #GP would go to
     // the OS's IDT, so load the idle IDT, whose #GP gate fails the access.
-    // Interrupts are held off in root mode, and NMIs and machine checks keep
-    // the OS's gates
+    // Interrupts are held off in root mode, machine checks keep the OS's
+    // gates, and an NMI stops the processor for the debugger
     //
     idleIdtr.Base = VpData->IdleIdt;
     idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;
