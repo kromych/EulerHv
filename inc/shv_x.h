@@ -184,6 +184,21 @@ typedef struct _SHV_VP_DATA
             UINT8 HltActivityStateRejected;
 
             //
+            // Whether the guest's local APIC is in x2APIC mode, which the
+            // flush IPIs need, and its x2APIC ID. The magic detection leaf
+            // reports the mode, and the ID is published once the guest runs
+            //
+            UINT8 X2ApicEnabled;
+            UINT32 X2ApicId;
+
+            //
+            // An external interrupt that exited while the guest could not
+            // take it, injected when the interrupt window opens
+            //
+            UINT8 PendingInterrupt;
+            UINT32 PendingInterruptVector;
+
+            //
             // This processor's bit in the bitmap of virtualized processors
             //
             UINT32 ProcessorIndex;

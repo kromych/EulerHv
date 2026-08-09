@@ -64,3 +64,8 @@ VOID
 ShvVmxHandleExit (
     _In_ PSHV_VP_STATE VpState
     );
+
+VOID
+ShvVmxFlushGuestMappings (
+    _In_ PSHV_VP_DATA VpData
+    );

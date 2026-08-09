@@ -93,6 +93,12 @@ typedef struct _SHV_ARCH
     // Handle one VM-Exit, called from the VM-Exit loop
     //
     VOID (*HandleExit) (_In_ PSHV_VP_STATE VpState);
+
+    //
+    // Flush the guest's mappings cached for this processor's second level
+    // identity map, called when SimpleVisor's flush IPI arrives
+    //
+    VOID (*FlushGuestMappings) (_In_ PSHV_VP_DATA VpData);
 } SHV_ARCH, *PSHV_ARCH;
 
 extern const SHV_ARCH ShvVmxArch;
@@ -144,6 +150,17 @@ VOID
 ShvVpSetSecondLevelRoot (
     _In_ UINT32 ProcessorIndex,
     _In_ UINT64 Root
+    );
+
+//
+// Publish or clear the flush IPI value of a processor: its x2APIC ID as the
+// ICR destination, with the flush vector. 0 is not a value, so it marks the
+// processor as not running the guest
+//
+VOID
+ShvVpSetApicId (
+    _In_ UINT32 ProcessorIndex,
+    _In_ UINT64 Icr
     );
 
 VOID

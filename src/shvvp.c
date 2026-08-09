@@ -38,6 +38,13 @@ static UINT32 ShvVpVirtualizedBitmapCount;
 //
 static volatile UINT64* ShvVpSecondLevelRoots;
 
+//
+// Each virtualized processor's flush IPI value, by processor number: its
+// x2APIC ID as the ICR destination with the flush vector, or 0 while the
+// processor cannot take the IPI, such as before its guest runs
+//
+static volatile UINT64* ShvVpApicIds;
+
 INT32
 ShvVpAllocateTracking (
     _In_ UINT32 CpuCount
@@ -64,6 +71,17 @@ ShvVpAllocateTracking (
         return SHV_STATUS_NO_RESOURCES;
     }
     __stosq((UINT64*)ShvVpSecondLevelRoots, 0, CpuCount);
+
+    ShvVpApicIds = ShvOsAllocateContigousAlignedMemory(CpuCount * sizeof(UINT64));
+    if (ShvVpApicIds == NULL)
+    {
+        ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpSecondLevelRoots, CpuCount * sizeof(UINT64));
+        ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpVirtualizedBitmap, size);
+        ShvVpVirtualizedBitmap = NULL;
+        ShvVpSecondLevelRoots = NULL;
+        return SHV_STATUS_NO_RESOURCES;
+    }
+    __stosq((UINT64*)ShvVpApicIds, 0, CpuCount);
     ShvVpVirtualizedBitmapCount = CpuCount;
     return SHV_STATUS_SUCCESS;
 }
@@ -79,8 +97,11 @@ ShvVpFreeTracking (
                                          ((ShvVpVirtualizedBitmapCount + 31) / 32) * sizeof(long));
         ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpSecondLevelRoots,
                                          ShvVpVirtualizedBitmapCount * sizeof(UINT64));
+        ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpApicIds,
+                                         ShvVpVirtualizedBitmapCount * sizeof(UINT64));
         ShvVpVirtualizedBitmap = NULL;
         ShvVpSecondLevelRoots = NULL;
+        ShvVpApicIds = NULL;
         ShvVpVirtualizedBitmapCount = 0;
     }
 }
@@ -131,6 +152,19 @@ ShvVpSetSecondLevelRoot (
 }
 
 VOID
+ShvVpSetApicId (
+    _In_ UINT32 ProcessorIndex,
+    _In_ UINT64 Icr
+    )
+{
+    //
+    // The value is the processor's x2APIC ID as the ICR destination with the
+    // flush vector, or 0 while the processor cannot take the IPI
+    //
+    ShvVpApicIds[ProcessorIndex] = Icr;
+}
+
+VOID
 ShvVpFlushGuestMappings (
     _In_ PSHV_VP_DATA VpData,
     _In_ PSHV_HYPERCALL Hypercall
@@ -138,6 +172,7 @@ ShvVpFlushGuestMappings (
 {
     UINT32 i;
     UINT64 root;
+    UINT64 icr;
 
     //
     // Nested under Hyper-V, the guest flushes the TLB of other processors with
@@ -147,24 +182,57 @@ ShvVpFlushGuestMappings (
     // mappings cached for each processor's second level identity map. That is
     // more than the guest asked for, but its TLB refills from the same map.
     //
-    // Without that hypercall SimpleVisor does not load if Hyper-V recommends
-    // the TLB flush hypercalls, see ShvVpDetectUnderlyingHypervisor
-    //
-    if (VpData->HyperVGuestMappingFlush == FALSE)
+    if (VpData->HyperVGuestMappingFlush != FALSE)
     {
+        for (i = 0; i < ShvVpVirtualizedBitmapCount; i++)
+        {
+            root = ShvVpSecondLevelRoots[i];
+            if (root != 0)
+            {
+                VpData->GuestMappingFlushInput[0] = root;
+                VpData->GuestMappingFlushInput[1] = 0;
+                Hypercall(HvCallFlushGuestPhysicalAddressSpace,
+                          VpData->GuestMappingFlushInputPhysicalAddress,
+                          0);
+            }
+        }
         return;
     }
 
+    //
+    // Without Hyper-V's flush hypercall, flush the guest's mappings with
+    // SimpleVisor's own flush IPIs. Each virtualized processor takes the IPI
+    // in root mode and flushes the mappings cached for its second level
+    // identity map, and the sender flushes its own
+    //
     for (i = 0; i < ShvVpVirtualizedBitmapCount; i++)
     {
         root = ShvVpSecondLevelRoots[i];
-        if (root != 0)
+        if (root == 0)
         {
-            VpData->GuestMappingFlushInput[0] = root;
-            VpData->GuestMappingFlushInput[1] = 0;
-            Hypercall(HvCallFlushGuestPhysicalAddressSpace,
-                      VpData->GuestMappingFlushInputPhysicalAddress,
-                      0);
+            continue;
+        }
+
+        if (i == VpData->ProcessorIndex)
+        {
+            ShvArch->FlushGuestMappings(VpData);
+            VpData->IpiCounts[ShvIpiFlushIpisSent]++;
+            continue;
+        }
+
+        //
+        // Send the flush IPI. Its value is the processor's x2APIC ID as the
+        // ICR destination with the flush vector, published once the guest
+        // runs, so 0 means the processor cannot take it
+        //
+        icr = ShvVpApicIds[i];
+        if (icr == 0)
+        {
+            continue;
+        }
+        if (ShvUtilAccessMsr(VpData, APIC_ICR, TRUE, &icr) != FALSE)
+        {
+            VpData->IpiCounts[ShvIpiFlushIpisSent]++;
         }
     }
 }
@@ -252,16 +320,14 @@ ShvVpDetectUnderlyingHypervisor (
     // The OS keeps the hypercalls Hyper-V recommended at boot for switching
     // address spaces and flushing the TLB. Forwarded from root mode they act
     // on SimpleVisor's address space instead of the guest's. Flushing the
-    // guest's cached mappings afterwards makes up for the TLB flushes, but
-    // nothing makes up for the switches. Do not load where the guest would
-    // run on stale translations or in the wrong address space
+    // guest's cached mappings afterwards, with Hyper-V's flush hypercall or
+    // SimpleVisor's own flush IPIs, makes up for the TLB flushes, but nothing
+    // makes up for the switches. Do not load where the guest would run on
+    // stale translations or in the wrong address space
     //
     __cpuid(cpuInfo, HYPERV_CPUID_ENLIGHTMENT_INFO);
     enlightenments = (UINT32)cpuInfo[0];
-    if (((enlightenments & HYPERV_ENLIGHTMENT_ADDRESS_SPACE_SWITCH) != 0) ||
-        (((enlightenments & (HYPERV_ENLIGHTMENT_LOCAL_TLB_FLUSH |
-                             HYPERV_ENLIGHTMENT_REMOTE_TLB_FLUSH)) != 0) &&
-         (VpData->HyperVGuestMappingFlush == FALSE)))
+    if ((enlightenments & HYPERV_ENLIGHTMENT_ADDRESS_SPACE_SWITCH) != 0)
     {
         return FALSE;
     }
@@ -274,6 +340,7 @@ ShvVpLaunch (
     )
 {
     INT32 status;
+    UINT64 value;
     //
     // Being nested changes how CPUID and the identity map are handled, and
     // can keep SimpleVisor from running at all
@@ -311,6 +378,25 @@ ShvVpLaunch (
     ShvArch->Setup(VpData);
 
     //
+    // Remember whether the guest's local APIC is in x2APIC mode, which the
+    // flush IPIs need, and this processor's x2APIC ID, which they target.
+    // Windows enables x2APIC at boot when the processor offers it, and the
+    // lab sets the x2apicpolicy BCD option to make it do so. The ID is
+    // published only once the guest runs, so a flush IPI never reaches this
+    // processor while it still runs the OS's code
+    //
+    value = 0;
+    if (ShvUtilAccessMsr(VpData, APIC_BASE, FALSE, &value) != FALSE)
+    {
+        VpData->X2ApicEnabled = (value & APIC_BASE_X2APIC) != 0;
+        if ((VpData->X2ApicEnabled != FALSE) &&
+            (ShvUtilAccessMsr(VpData, APIC_ID, FALSE, &value) != FALSE))
+        {
+            VpData->X2ApicId = (UINT32)value;
+        }
+    }
+
+    //
     // Launch the guest. This will cause the processor to jump to
     // ShvVpRestoreAfterLaunch on success, or return back to the caller on
     // failure, when the second level identity map is no longer used
@@ -345,6 +431,18 @@ ShvVpRestoreAfterLaunch (
     // launch happened. The index comes from the VP data as no stack is used
     //
     _interlockedbittestandset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
+
+    //
+    // Publish the flush IPI target only now that the guest runs, as an IPI
+    // arriving before the launch would be taken by the OS's code, which has
+    // no handler for the flush vector
+    //
+    if (vpData->X2ApicEnabled != FALSE)
+    {
+        ShvVpSetApicId(vpData->ProcessorIndex,
+                       (UINT64)vpData->X2ApicId << APIC_ICR_DESTINATION_SHIFT |
+                       SHV_IPI_FLUSH_VECTOR);
+    }
 
     //
     // And finally, restore the context, so that all register and stack
@@ -449,6 +547,7 @@ ShvVpUnloadCallback (
         vpData = (PSHV_VP_DATA)((UINT64)cpuInfo[0] << 32 | (UINT32)cpuInfo[1]);
         _interlockedbittestandreset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
         ShvVpSetSecondLevelRoot(vpData->ProcessorIndex, 0);
+        ShvVpSetApicId(vpData->ProcessorIndex, 0);
         for (i = 0; i < SHV_EXIT_REASON_COUNT; i++)
         {
             _InterlockedExchangeAdd64(&Context->ExitCounts[i], (INT64)vpData->ExitCounts[i]);
@@ -456,6 +555,10 @@ ShvVpUnloadCallback (
         for (i = 0; i < ShvTlbHypercallCount; i++)
         {
             _InterlockedExchangeAdd64(&Context->TlbHypercallCounts[i], (INT64)vpData->TlbHypercallCounts[i]);
+        }
+        for (i = 0; i < ShvIpiCount; i++)
+        {
+            _InterlockedExchangeAdd64(&Context->IpiCounts[i], (INT64)vpData->IpiCounts[i]);
         }
         ShvOsFreeContiguousAlignedMemory(vpData, sizeof(*vpData));
     }

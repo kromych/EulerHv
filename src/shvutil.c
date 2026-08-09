@@ -250,6 +250,9 @@ ShvUtilIdle (
     _In_ PSHV_VP_DATA VpData
     )
 {
+    UINT64 value;
+    UINT32 vector;
+
     //
     // Halt until an interrupt comes in, and return its vector for the guest,
     // or 0 if the processor woke up without one
@@ -268,7 +271,23 @@ ShvUtilIdle (
     // Otherwise halt. The host would deliver interrupts through the OS's
     // IDT, so take them through the idle IDT instead
     //
-    return ShvUtilTakeInterrupt(VpData);
+    vector = ShvUtilTakeInterrupt(VpData);
+
+    //
+    // SimpleVisor's own flush IPI arrives while idling in root mode. Flush
+    // the guest's mappings, end the interrupt with an EOI, which the guest
+    // never will, and keep waiting, rather than hand the vector to the
+    // guest, which has no handler for it
+    //
+    while (vector == SHV_IPI_FLUSH_VECTOR)
+    {
+        VpData->IpiCounts[ShvIpiFlushIpisReceived]++;
+        ShvArch->FlushGuestMappings(VpData);
+        value = 0;
+        ShvUtilAccessMsr(VpData, APIC_EOI, TRUE, &value);
+        vector = ShvUtilTakeInterrupt(VpData);
+    }
+    return vector;
 }
 
 UINT8

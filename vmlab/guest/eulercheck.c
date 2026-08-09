@@ -81,6 +81,8 @@ static const char* IpiCounterNames[] =
 {
     "icr_writes",
     "self_ipis",
+    "flush_sent",
+    "flush_received",
 };
 
 #define IPI_COUNTERS (sizeof(IpiCounterNames) / sizeof(IpiCounterNames[0]))

@@ -277,6 +277,7 @@ ShvVmxSetupVmcsForVp (
     VMX_GDTENTRY64 vmxGdtEntry;
     VMX_EPTP vmxEptp;
     UINT32 secondaryControls;
+    UINT32 pinControls;
 
     //
     // Begin by setting the link pointer to the required value for 4KB VMCS.
@@ -338,11 +339,14 @@ ShvVmxSetupVmcsForVp (
     __vmx_vmwrite(SECONDARY_VM_EXEC_CONTROL, secondaryControls);
 
     //
-    // Enable no pin-based options ourselves, but there may be some required by
-    // the processor. Use ShvUtilAdjustMsr to add those in.
+    // Exit on external interrupts, so that SimpleVisor sees the IPIs the
+    // guest sends and its own flush IPIs, which otherwise the guest would
+    // take. There may also be pin-based options required by the processor.
+    // Use ShvUtilAdjustMsr to add those in
     //
-    __vmx_vmwrite(PIN_BASED_VM_EXEC_CONTROL,
-                           ShvUtilAdjustMsr(VpData->MsrData[13], 0));
+    pinControls = ShvUtilAdjustMsr(VpData->MsrData[13],
+                                   PIN_BASED_EXT_INTR_MASK);
+    __vmx_vmwrite(PIN_BASED_VM_EXEC_CONTROL, pinControls);
 
     //
     // In order for our choice of supporting RDTSCP and XSAVE/RESTORES above to
@@ -357,12 +361,15 @@ ShvVmxSetupVmcsForVp (
     //
     // Make sure to enter us in x64 mode at all times. VM-Exits set DR7 to 400h
     // and clear IA32_DEBUGCTL, so save the guest ones, which the true controls
-    // let processors leave out
+    // let processors leave out. Acknowledge interrupts on exit, which puts the
+    // vector of an exiting external interrupt in the exit interruption
+    // information
     //
     __vmx_vmwrite(VM_EXIT_CONTROLS,
                            ShvUtilAdjustMsr(VpData->MsrData[15],
                                             VM_EXIT_IA32E_MODE |
-                                            VM_EXIT_SAVE_DEBUG_CNTRLS));
+                                            VM_EXIT_SAVE_DEBUG_CNTRLS |
+                                            VM_EXIT_ACK_INTR_ON_EXIT));
 
     //
     // As we exit back into the guest, make sure to exist in x64 mode as well,
@@ -639,6 +646,24 @@ ShvVmxProbe (
         //
         VpData->EptControls = SECONDARY_EXEC_ENABLE_EPT | SECONDARY_EXEC_ENABLE_VPID;
     }
+
+    //
+    // The IPIs the guest sends and SimpleVisor's own flush IPIs need exits
+    // on external interrupts, with the vector acknowledged into the exit
+    // interruption information, and the interrupt window to hold interrupts
+    // the guest cannot take yet. Without them, the flush IPIs would be
+    // taken by the guest's code, which has no handler for their vector, or
+    // the held interrupts could not be injected, so do not load
+    //
+    if (((VpData->MsrData[MSR_IA32_VMX_TRUE_PINBASED_CTLS - MSR_IA32_VMX_BASIC].HighPart &
+          PIN_BASED_EXT_INTR_MASK) != 0) ||
+        ((VpData->MsrData[MSR_IA32_VMX_TRUE_EXIT_CTLS - MSR_IA32_VMX_BASIC].HighPart &
+          VM_EXIT_ACK_INTR_ON_EXIT) != 0) ||
+        ((VpData->MsrData[MSR_IA32_VMX_TRUE_PROCBASED_CTLS - MSR_IA32_VMX_BASIC].HighPart &
+          (CPU_BASED_INTR_WINDOW_EXITING | CPU_BASED_VIRTUAL_INTR_PENDING)) != 0))
+    {
+        return FALSE;
+    }
     return TRUE;
 }
 
@@ -654,5 +679,6 @@ const SHV_ARCH ShvVmxArch =
     ShvVmxSetupVmcsForVp,
     ShvVmxLaunch,
     ShvVmxHandleExit,
+    ShvVmxFlushGuestMappings,
 };
 

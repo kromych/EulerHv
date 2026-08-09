@@ -72,8 +72,15 @@ see [vmlab\README.md](vmlab/README.md).
 Loading the driver works as for SimpleVisor, see its
 [README](README.SimpleVisor.md#installation-on-windows).
 When unloading, Euler prints to the kernel debugger how many VM-exits it
-handled per exit reason, and how many TLB flush hypercalls it forwarded.
-`vmlab\guest\eulercheck.c` reads the same counters while Euler runs.
+handled per exit reason, how many TLB flush hypercalls it forwarded, and how
+many IPIs it saw. `vmlab\guest\eulercheck.c` reads the same counters while
+Euler runs.
+
+Euler exits on external interrupts and injects them back, so it sees the
+IPIs the guest sends through the local APIC's ICR. It counts those and its
+own flush IPIs, which it sends to flush the guest's mappings on every
+processor when it forwards the guest's TLB flush hypercalls and Hyper-V
+offers no flush hypercall of its own. The flush IPIs never reach the guest.
 
 Typical counts, from the Hyper-V lab: Windows Server 2025 on 4 processors,
 nested under Hyper-V on Windows 11 24H2 on an Intel Core Ultra 9 185H, with

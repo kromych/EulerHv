@@ -716,6 +716,14 @@ ShvSvmEntryHandler (
         Context->Rbx = (uintptr_t)vpData & 0xFFFFFFFF;
         Context->Rcx = SHV_CPUID_UNLOAD_RESULT;
 
+        //
+        // This processor is leaving the guest, so stop advertising it as a
+        // flush IPI target before it runs the OS's code, which has no
+        // handler for the flush vector
+        //
+        ShvVpSetSecondLevelRoot(vpData->ProcessorIndex, 0);
+        ShvVpSetApicId(vpData->ProcessorIndex, 0);
+
         ShvOsUnprepareProcessor(vpData);
 
         __svm_vmload(vpData->VmcbPhysicalAddress);
@@ -808,10 +816,21 @@ ShvSvmLaunch (
     {
         //
         // The guest resumes in ShvVpInitialize, which checks that this
-        // processor is virtualized
+        // processor is virtualized. Publish the flush IPI target only now
+        // that the guest is about to run, as an IPI arriving before it
+        // would be taken by the OS's code, which has no handler for the
+        // flush vector. Hold interrupts off until the VMRUN enters the
+        // guest
         //
+        _disable();
         __writecr3(VpData->SystemDirectoryTableBase);
         ShvVpMarkVirtualized(VpData->ProcessorIndex);
+        if (VpData->X2ApicEnabled != FALSE)
+        {
+            ShvVpSetApicId(VpData->ProcessorIndex,
+                           (UINT64)VpData->X2ApicId << APIC_ICR_DESTINATION_SHIFT |
+                           SHV_IPI_FLUSH_VECTOR);
+        }
         ShvOsRestoreContext(&frame->Context);
     }
 
@@ -886,20 +905,41 @@ ShvSvmInjectInvalidOpcode (
 }
 
 VOID
+ShvSvmFlushGuestMappings (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    //
+    // Flush the guest's mappings cached for its ASID, which is 1, on the
+    // next VMRUN
+    //
+    VpData->Vmcb.TlbControl = SVM_TLB_CONTROL_FLUSH_ASID;
+}
+
+VOID
 ShvSvmHandleInterrupt (
     _In_ PSHV_VP_STATE VpState
     )
 {
     PSVM_VMCB vmcb = &VpState->VpData->Vmcb;
+    UINT64 value;
     UINT32 vector;
 
     //
     // The INTR intercept holds every external interrupt pending until the
     // VMM takes it: with the GIF set and interrupts on, the pending
     // interrupt delivers through the idle IDT, whose stub hands back its
-    // vector, and the guest takes the injected interrupt unconditionally on
-    // the next VMRUN, ending it with an EOI in its handler. The exit is not
-    // tied to an instruction, so RIP stays where it is
+    // vector. The exit is not tied to an instruction, so RIP stays where
+    // it is
+    //
+    // The flush IPI is never delivered to the guest, so flush the guest's
+    // mappings and end the interrupt with an EOI, which the guest never
+    // will. Writing 0 to the EOI register clears the highest bit of the
+    // ISR, which is the flush IPI's
+    //
+    // The other interrupts are injected into the guest, which takes them
+    // unconditionally on the next VMRUN, and its handler ends them with an
+    // EOI
     //
     VpState->SkipRipAdvance = TRUE;
     __svm_stgi();
@@ -911,6 +951,14 @@ ShvSvmHandleInterrupt (
         // Nothing was taken, so the interrupt is still pending, and the
         // next VMRUN exits again
         //
+        return;
+    }
+    if (vector == SHV_IPI_FLUSH_VECTOR)
+    {
+        VpState->VpData->IpiCounts[ShvIpiFlushIpisReceived]++;
+        ShvSvmFlushGuestMappings(VpState->VpData);
+        value = 0;
+        ShvUtilAccessMsr(VpState->VpData, APIC_EOI, TRUE, &value);
         return;
     }
     vmcb->InterruptShadow = 0;
@@ -1359,4 +1407,5 @@ const SHV_ARCH ShvSvmArch =
     ShvSvmSetupVmcbForVp,
     ShvSvmLaunch,
     ShvSvmHandleExit,
+    ShvSvmFlushGuestMappings,
 };

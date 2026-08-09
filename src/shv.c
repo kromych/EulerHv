@@ -92,14 +92,19 @@ ShvUnload (
     }
 
     //
-    // Report the IPIs observed
+    // Report the IPIs observed and sent
     //
     if ((callbackContext.IpiCounts[ShvIpiIcrWrites] |
-         callbackContext.IpiCounts[ShvIpiSelfIpiWrites]) != 0)
+         callbackContext.IpiCounts[ShvIpiSelfIpiWrites] |
+         callbackContext.IpiCounts[ShvIpiFlushIpisSent] |
+         callbackContext.IpiCounts[ShvIpiFlushIpisReceived]) != 0)
     {
-        ShvOsDebugPrint("The SHV saw IPIs: ICR writes %llu, self IPIs %llu\n",
+        ShvOsDebugPrint("The SHV saw IPIs: ICR writes %llu, self IPIs %llu, "
+                        "flush IPIs sent %llu, flush IPIs received %llu\n",
                         (UINT64)callbackContext.IpiCounts[ShvIpiIcrWrites],
-                        (UINT64)callbackContext.IpiCounts[ShvIpiSelfIpiWrites]);
+                        (UINT64)callbackContext.IpiCounts[ShvIpiSelfIpiWrites],
+                        (UINT64)callbackContext.IpiCounts[ShvIpiFlushIpisSent],
+                        (UINT64)callbackContext.IpiCounts[ShvIpiFlushIpisReceived]);
     }
 
     //
