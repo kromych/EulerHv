@@ -74,6 +74,17 @@ static const char* TlbHypercallNames[] =
 
 #define TLB_HYPERCALL_COUNTERS (sizeof(TlbHypercallNames) / sizeof(TlbHypercallNames[0]))
 
+//
+// The IPIs SimpleVisor counts, in the order of its ShvIpiCounter
+//
+static const char* IpiCounterNames[] =
+{
+    "icr_writes",
+    "self_ipis",
+};
+
+#define IPI_COUNTERS (sizeof(IpiCounterNames) / sizeof(IpiCounterNames[0]))
+
 static
 VOID
 ReportExitCounts (
@@ -82,11 +93,13 @@ ReportExitCounts (
 {
     static UINT64 counts[MAX_EXIT_COUNTERS];
     static UINT64 tlbCounts[TLB_HYPERCALL_COUNTERS];
+    static UINT64 ipiCounts[IPI_COUNTERS];
     GROUP_AFFINITY affinity;
     GROUP_AFFINITY previous;
     INT32 cpuInfo[4];
     UINT32 counters;
     UINT32 tlbCounters;
+    UINT32 ipiCounters;
     UINT32 processors;
     UINT32 reason;
     UINT64 total;
@@ -103,6 +116,7 @@ ReportExitCounts (
     //
     counters = 0;
     tlbCounters = 0;
+    ipiCounters = 0;
     processors = 0;
     GetThreadGroupAffinity(GetCurrentThread(), &previous);
     for (group = 0; group < GetActiveProcessorGroupCount(); group++)
@@ -145,6 +159,17 @@ ReportExitCounts (
                 }
                 tlbCounts[reason] += ((UINT64)(UINT32)cpuInfo[1] << 32) | (UINT32)cpuInfo[0];
             }
+
+            for (reason = 0; reason < IPI_COUNTERS; reason++)
+            {
+                __cpuidex(cpuInfo, SHV_CPUID_LEAF, SHV_CPUID_IPI_COUNTS | reason);
+                ipiCounters = min((UINT32)cpuInfo[2], IPI_COUNTERS);
+                if (reason >= ipiCounters)
+                {
+                    break;
+                }
+                ipiCounts[reason] += ((UINT64)(UINT32)cpuInfo[1] << 32) | (UINT32)cpuInfo[0];
+            }
         }
     }
     SetThreadGroupAffinity(GetCurrentThread(), &previous, NULL);
@@ -176,6 +201,14 @@ ReportExitCounts (
     for (reason = 0; reason < tlbCounters; reason++)
     {
         printf("tlbcalls.%s=%llu\n", TlbHypercallNames[reason], tlbCounts[reason]);
+    }
+
+    //
+    // One line per IPI counter
+    //
+    for (reason = 0; reason < ipiCounters; reason++)
+    {
+        printf("ipis.%s=%llu\n", IpiCounterNames[reason], ipiCounts[reason]);
     }
 }
 

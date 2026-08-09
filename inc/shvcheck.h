@@ -37,6 +37,7 @@ Environment:
 #define SHV_CPUID_DETECT               0x44444444
 #define SHV_CPUID_EXIT_COUNTS          0x45450000
 #define SHV_CPUID_TLB_COUNTS           0x46460000
+#define SHV_CPUID_IPI_COUNTS           0x47470000
 
 //
 // The counter calls take the counter index in the low 16 bits of ECX, and

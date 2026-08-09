@@ -52,6 +52,7 @@ typedef struct _SHV_CALLBACK_CONTEXT
     INT32 FailureStatus;
     volatile INT64 ExitCounts[SHV_EXIT_REASON_COUNT];
     volatile INT64 TlbHypercallCounts[ShvTlbHypercallCount];
+    volatile INT64 IpiCounts[ShvIpiCount];
 } SHV_CALLBACK_CONTEXT, *PSHV_CALLBACK_CONTEXT;
 
 //

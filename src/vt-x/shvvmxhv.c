@@ -318,6 +318,25 @@ ShvVmxHandleCpuid (
     }
 
     //
+    // Likewise for the IPIs, one ShvIpiCounter per call, given in the low 16
+    // bits of ECX
+    //
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        (((UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_SELECTOR_MASK) ==
+         SHV_CPUID_IPI_COUNTS))
+    {
+        reason = (UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_MASK;
+        count = (reason < ShvIpiCount) ?
+                VpState->VpData->IpiCounts[reason] : 0;
+
+        VpState->VpRegs->Rax = count & 0xFFFFFFFF;
+        VpState->VpRegs->Rbx = count >> 32;
+        VpState->VpRegs->Rcx = ShvIpiCount;
+        VpState->VpRegs->Rdx = 0;
+        return;
+    }
+
+    //
     // Otherwise, issue the CPUID to the logical processor based on the indexes
     // on the VP's GPRs.
     //
@@ -448,7 +467,25 @@ ShvVmxHandleMsr (
     // and give the guest the #GP that the processor or that hypervisor
     // raises
     //
+    //
+    // Count the IPIs the guest sends through the ICR and the self IPI
+    // register, and pass the writes on. The ICR does not say what the IPI is
+    // for, as the OS carries that in its own per-processor IPI mailbox, so
+    // SimpleVisor cannot tell the TLB flushes from the other IPIs
+    //
     msr = (UINT32)VpState->VpRegs->Rcx;
+    if (VpState->ExitReason == EXIT_REASON_MSR_WRITE)
+    {
+        if (msr == APIC_ICR)
+        {
+            VpState->VpData->IpiCounts[ShvIpiIcrWrites]++;
+        }
+        else if (msr == APIC_SELF_IPI)
+        {
+            VpState->VpData->IpiCounts[ShvIpiSelfIpiWrites]++;
+        }
+    }
+
     if (VpState->ExitReason == EXIT_REASON_MSR_READ)
     {
         //

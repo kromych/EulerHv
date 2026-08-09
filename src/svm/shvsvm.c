@@ -380,7 +380,8 @@ static
 VOID
 ShvSvmSetMsrPermission (
     _Inout_ UINT8* MsrBitmap,
-    _In_ UINT32 Msr
+    _In_ UINT32 Msr,
+    _In_ UINT8 WriteOnly
     )
 {
     UINT32 offset;
@@ -413,7 +414,8 @@ ShvSvmSetMsrPermission (
     bitPos = Msr * 2;
     offset += bitPos / 8;
     bitPos %= 8;
-    MsrBitmap[offset] |= (UINT8)((1 << bitPos) | (1 << (bitPos + 1)));
+    MsrBitmap[offset] |= (UINT8)((1 << bitPos) |
+                                 (WriteOnly == FALSE ? (1 << (bitPos + 1)) : 0));
 }
 
 static
@@ -444,11 +446,15 @@ ShvSvmSetupVmcbForVp (
     VMX_GDTENTRY64 gdtEntry;
 
     //
-    // Intercept EFER, VM_CR and VM_HSAVE_PA, and pass the other MSRs through
+    // Intercept EFER, VM_CR and VM_HSAVE_PA, and pass the other MSRs through.
+    // Intercept the ICR and self IPI register writes, which send IPIs, and
+    // pass their reads through
     //
-    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_EFER);
-    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_VM_CR);
-    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_VM_HSAVE_PA);
+    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_EFER, FALSE);
+    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_VM_CR, FALSE);
+    ShvSvmSetMsrPermission(VpData->MsrBitmap, MSR_VM_HSAVE_PA, FALSE);
+    ShvSvmSetMsrPermission(VpData->MsrBitmap, APIC_ICR, TRUE);
+    ShvSvmSetMsrPermission(VpData->MsrBitmap, APIC_SELF_IPI, TRUE);
 
     //
     // Intercept CPUID, HLT, the MSRs in the permission map and the SVM
@@ -984,6 +990,25 @@ ShvSvmHandleCpuid (
     }
 
     //
+    // Likewise for the IPIs, one ShvIpiCounter per call, given in the low 16
+    // bits of ECX
+    //
+    if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
+        (((UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_SELECTOR_MASK) ==
+         SHV_CPUID_IPI_COUNTS))
+    {
+        reason = (UINT32)VpState->VpRegs->Rcx & SHV_CPUID_COUNT_MASK;
+        count = (reason < ShvIpiCount) ?
+                VpState->VpData->IpiCounts[reason] : 0;
+
+        VpState->VpRegs->Rax = count & 0xFFFFFFFF;
+        VpState->VpRegs->Rbx = count >> 32;
+        VpState->VpRegs->Rcx = ShvIpiCount;
+        VpState->VpRegs->Rdx = 0;
+        return;
+    }
+
+    //
     // Issue the CPUID to the logical processor
     //
     __cpuidex(cpu_info, (INT32)VpState->VpRegs->Rax, (INT32)VpState->VpRegs->Rcx);
@@ -1123,6 +1148,24 @@ ShvSvmHandleMsr (
             VpState->VpRegs->Rdx = value >> 32;
         }
         return;
+    }
+
+    //
+    // Count the IPIs the guest sends through the ICR and the self IPI
+    // register, and pass the writes on. The ICR does not say what the IPI is
+    // for, as the OS carries that in its own per-processor IPI mailbox, so
+    // SimpleVisor cannot tell the TLB flushes from the other IPIs
+    //
+    if (vmcb->ExitInfo1 != 0)
+    {
+        if (msr == APIC_ICR)
+        {
+            VpState->VpData->IpiCounts[ShvIpiIcrWrites]++;
+        }
+        else if (msr == APIC_SELF_IPI)
+        {
+            VpState->VpData->IpiCounts[ShvIpiSelfIpiWrites]++;
+        }
     }
 
     //

@@ -92,6 +92,17 @@ ShvUnload (
     }
 
     //
+    // Report the IPIs observed
+    //
+    if ((callbackContext.IpiCounts[ShvIpiIcrWrites] |
+         callbackContext.IpiCounts[ShvIpiSelfIpiWrites]) != 0)
+    {
+        ShvOsDebugPrint("The SHV saw IPIs: ICR writes %llu, self IPIs %llu\n",
+                        (UINT64)callbackContext.IpiCounts[ShvIpiIcrWrites],
+                        (UINT64)callbackContext.IpiCounts[ShvIpiSelfIpiWrites]);
+    }
+
+    //
     // Indicate unload
     //
     ShvOsDebugPrint("The SHV has been uninstalled.\n");

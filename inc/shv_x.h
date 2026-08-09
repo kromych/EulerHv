@@ -25,6 +25,8 @@ Environment:
 
 #include "vmx.h"
 #include "svm.h"
+#include "shvapic.h"
+#include "shvcheck.h"
 
 #define SHV_STATUS_SUCCESS          0
 #define SHV_STATUS_NOT_AVAILABLE    -1
@@ -195,6 +197,11 @@ typedef struct _SHV_VP_DATA
             // TLB flush hypercalls forwarded to Hyper-V, reported likewise
             //
             UINT64 TlbHypercallCounts[ShvTlbHypercallCount];
+
+            //
+            // IPIs observed and sent, reported likewise
+            //
+            UINT64 IpiCounts[ShvIpiCount];
 
             //
             // The VM-Exit SimpleVisor could not handle, for the debugger
