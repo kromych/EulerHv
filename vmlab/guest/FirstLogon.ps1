@@ -69,7 +69,9 @@ Invoke-Bcdedit /set x2apicpolicy Enable
 #
 # The platform must expose x2APIC, which the BCD policy cannot conjure up.
 # The creation scripts put eulercheck.exe on the install media next to this
-# script, and it reports the CPUID bit
+# script, and it reports the CPUID bit. Hyper-V hides x2APIC from guests on
+# some hosts, so warn rather than fail the setup: the flush IPIs stay off in
+# such a guest, and the test reports it
 #
 $eulercheck = Join-Path $PSScriptRoot 'eulercheck.exe'
 if (-not (Test-Path $eulercheck)) {
@@ -78,7 +80,7 @@ if (-not (Test-Path $eulercheck)) {
 else {
     $x2apic = & $eulercheck | Where-Object { $_ -match '^x2apic_cpuid=' }
     if ($x2apic -ne 'x2apic_cpuid=1') {
-        $failures += "The platform does not expose x2APIC to the guest (eulercheck said '$x2apic')"
+        Write-Warning "The platform does not expose x2APIC to the guest (eulercheck said '$x2apic'); the flush IPIs stay off."
     }
 }
 $deviceGuard = 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard'
