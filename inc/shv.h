@@ -362,27 +362,6 @@ ShvOsGetPhysicalAddress (
     _In_ VOID* BaseAddress
     );
 
-//
-// Map all physical memory into system address space, and read from it. Root
-// mode cannot ask the OS to read, so it does so itself
-//
-INT32
-ShvOsInitializePhysicalMemory (
-    VOID
-    );
-
-VOID
-ShvOsUninitializePhysicalMemory (
-    VOID
-    );
-
-UINT8
-ShvOsReadPhysical (
-    _In_ UINT64 PhysicalAddress,
-    _In_ UINT32 Length,
-    _Out_ VOID* Buffer
-    );
-
 #ifndef __BASE_H__
 VOID
 ShvOsDebugPrint (

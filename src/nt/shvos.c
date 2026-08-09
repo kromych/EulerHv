@@ -343,7 +343,7 @@ ShvOsInitializePhysicalMemory (
             ranges[i].BaseAddress.QuadPart;
         ShvOsPhysicalRanges[ShvOsPhysicalRangeCount].VirtualBase =
             (UINT64)MmMapIoSpace(ranges[i].BaseAddress,
-                                 ranges[i].NumberOfBytes,
+                                 (SIZE_T)ranges[i].NumberOfBytes.QuadPart,
                                  MmNonCached);
         ShvOsPhysicalRanges[ShvOsPhysicalRangeCount].Length =
             ranges[i].NumberOfBytes.QuadPart;
