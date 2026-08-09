@@ -1127,9 +1127,10 @@ ShvSvmHandleCpuid (
     {
         //
         // The hypercalls would switch and flush the address spaces of
-        // SimpleVisor, rather than those of the guest on ASID 1. Have the
-        // guest use MOV CR3, INVLPG and IPIs instead. Windows reads this at
-        // boot, so only an OS that starts after SimpleVisor follows it
+        // SimpleVisor, rather than those of the guest on ASID 1. The
+        // VM-Exit handlers make up for them, but a guest that boots after
+        // SimpleVisor is better off with MOV CR3, INVLPG and IPIs instead.
+        // Windows reads this at boot, so only such a guest follows it
         //
         cpu_info[0] &= ~(HYPERV_ENLIGHTMENT_ADDRESS_SPACE_SWITCH |
                          HYPERV_ENLIGHTMENT_LOCAL_TLB_FLUSH |
@@ -1298,6 +1299,34 @@ ShvSvmHandleSvmInstruction (
 }
 
 VOID
+ShvSvmHandleSwitchAddressSpace (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    HYPERV_SWITCH_VIRTUAL_ADDRESS_SPACE input;
+    PSVM_VMCB vmcb = &VpState->VpData->Vmcb;
+
+    //
+    // HvCallSwitchVirtualAddressSpace switches the address space of the
+    // calling processor to the CR3 in its input, at the GPA in R8, and
+    // flushes the old space's TLB as the flags say, which SimpleVisor
+    // ignores, always flushing the guest's mappings. It is emulated rather
+    // than forwarded, as a forwarded hypercall would switch SimpleVisor's
+    // own address space, not the guest's. Without the input, fail the call,
+    // as the address space cannot be guessed
+    //
+    if (ShvOsReadPhysical(VpState->VpRegs->R8, sizeof(input), &input) == FALSE)
+    {
+        VpState->VpRegs->Rax = HYPERV_STATUS_INVALID_PARAMETER;
+        return;
+    }
+    vmcb->Cr3 = input.AddressSpace;
+    vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_CRX;
+    ShvSvmFlushGuestMappings(VpState->VpData);
+    VpState->VpRegs->Rax = HYPERV_STATUS_SUCCESS;
+}
+
+VOID
 ShvSvmHandleVmmcall (
     _In_ PSHV_VP_STATE VpState
     )
@@ -1317,6 +1346,17 @@ ShvSvmHandleVmmcall (
     if (VpState->VpData->Vmcb.Cpl != DPL_SYSTEM)
     {
         ShvSvmInjectInvalidOpcode(VpState);
+        return;
+    }
+
+    //
+    // The switch hypercall changes the guest's address space, which a
+    // forwarded hypercall does not, so handle it separately
+    //
+    if ((VpState->VpRegs->Rcx & HYPERV_HYPERCALL_CODE_MASK) ==
+        HvCallSwitchVirtualAddressSpace)
+    {
+        ShvSvmHandleSwitchAddressSpace(VpState);
         return;
     }
 

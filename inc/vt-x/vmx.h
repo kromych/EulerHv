@@ -374,12 +374,30 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 
 typedef enum _HvCallCode
 {
+    HvCallSwitchVirtualAddressSpace        = 0x0001,
     HvCallFlushVirtualAddressSpace          = 0x0002,
     HvCallFlushVirtualAddressList           = 0x0003,
     HvCallFlushVirtualAddressSpaceEx        = 0x0013,
     HvCallFlushVirtualAddressListEx         = 0x0014,
     HvCallFlushGuestPhysicalAddressSpace    = 0x00af,
 } HvCallCode;
+
+//
+// The input of HvCallSwitchVirtualAddressSpace, at the GPA in R8: the address
+// space to switch to, and the TLB flush flags. SimpleVisor ignores the flags
+// and flushes the guest's mappings all the time
+//
+typedef struct _HYPERV_SWITCH_VIRTUAL_ADDRESS_SPACE
+{
+    UINT64 AddressSpace;
+    UINT64 Flags;
+} HYPERV_SWITCH_VIRTUAL_ADDRESS_SPACE;
+
+//
+// The Hyper-V hypercall results SimpleVisor returns
+//
+#define HYPERV_STATUS_SUCCESS               0x0000
+#define HYPERV_STATUS_INVALID_PARAMETER     0x0005
 
 typedef enum _VmcsField
 {

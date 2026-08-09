@@ -268,7 +268,6 @@ ShvVpDetectUnderlyingHypervisor (
 {
     INT32 cpuInfo[4];
     UINT32 maxLeaf;
-    UINT32 enlightenments;
 
     //
     // SimpleVisor is not running yet, so CPUID reaches the processor or the
@@ -317,20 +316,13 @@ ShvVpDetectUnderlyingHypervisor (
     }
 
     //
-    // The OS keeps the hypercalls Hyper-V recommended at boot for switching
-    // address spaces and flushing the TLB. Forwarded from root mode they act
-    // on SimpleVisor's address space instead of the guest's. Flushing the
-    // guest's cached mappings afterwards, with Hyper-V's flush hypercall or
-    // SimpleVisor's own flush IPIs, makes up for the TLB flushes, but nothing
-    // makes up for the switches. Do not load where the guest would run on
-    // stale translations or in the wrong address space
+    // The guest keeps the hypercalls Hyper-V recommended at boot for
+    // switching address spaces and flushing the TLB. The VM-Exit handlers
+    // forward the flush hypercalls and compensate for them with Hyper-V's
+    // flush hypercall or SimpleVisor's own flush IPIs, and handle the switch
+    // hypercall by switching the guest's CR3, so neither keeps SimpleVisor
+    // from loading
     //
-    __cpuid(cpuInfo, HYPERV_CPUID_ENLIGHTMENT_INFO);
-    enlightenments = (UINT32)cpuInfo[0];
-    if ((enlightenments & HYPERV_ENLIGHTMENT_ADDRESS_SPACE_SWITCH) != 0)
-    {
-        return FALSE;
-    }
     return TRUE;
 }
 

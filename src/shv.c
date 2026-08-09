@@ -49,6 +49,7 @@ ShvUnload (
     __stosb((UINT8*)&callbackContext, 0, sizeof(callbackContext));
     ShvOsRunCallbackOnProcessors(ShvVpUnloadCallback, &callbackContext);
     ShvVpFreeTracking();
+    ShvOsUninitializePhysicalMemory();
 
     //
     // Report the VM-Exits per exit reason (EXIT_REASON_* in vmx.h, or
@@ -136,6 +137,17 @@ ShvLoad (
     status = ShvVpAllocateTracking(ShvOsGetMaximumProcessorCount());
     if (status != SHV_STATUS_SUCCESS)
     {
+        return status;
+    }
+
+    //
+    // Map all physical memory, which root mode reads the guest's hypercall
+    // inputs from, as no OS service may run there
+    //
+    status = ShvOsInitializePhysicalMemory();
+    if (status != SHV_STATUS_SUCCESS)
+    {
+        ShvVpFreeTracking();
         return status;
     }
 

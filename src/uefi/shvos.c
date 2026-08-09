@@ -287,6 +287,37 @@ ShvOsGetPhysicalAddress (
     return (UINT64)BaseAddress;
 }
 
+//
+// The UEFI build maps nothing, so reading guest memory fails
+//
+INT32
+ShvOsInitializePhysicalMemory (
+    VOID
+    )
+{
+    return SHV_STATUS_SUCCESS;
+}
+
+VOID
+ShvOsUninitializePhysicalMemory (
+    VOID
+    )
+{
+}
+
+UINT8
+ShvOsReadPhysical (
+    _In_ UINT64 PhysicalAddress,
+    _In_ UINT32 Length,
+    _Out_ VOID* Buffer
+    )
+{
+    UNREFERENCED_PARAMETER(PhysicalAddress);
+    UNREFERENCED_PARAMETER(Length);
+    UNREFERENCED_PARAMETER(Buffer);
+    return FALSE;
+}
+
 INT32
 ShvOsGetCurrentProcessorNumber (
     VOID

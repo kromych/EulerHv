@@ -84,7 +84,8 @@ offers no flush hypercall of its own. The flush IPIs never reach the guest.
 Neither do NMIs: Euler never sends one itself, and the only NMI the guest
 sees is the one `eulercheck nmi` asks Euler to inject on demand. An NMI
 that reaches a running guest anyway halts Euler for the debugger, as
-Windows crashes on NMIs.
+Windows crashes on NMIs. The address space switch hypercalls, which Windows
+uses with KVA shadow, are emulated by switching the guest's CR3.
 
 Typical counts, from the Hyper-V lab: Windows Server 2025 on 4 processors,
 nested under Hyper-V on Windows 11 24H2 on an Intel Core Ultra 9 185H, with
