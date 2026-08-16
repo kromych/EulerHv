@@ -197,17 +197,18 @@ ShvUtilBuildIdleIdt (
     UINT32 vector;
 
     //
-    // Build the IDT for idling when the guest halts. Exceptions keep the
-    // OS's gates, as with the host IDT, and interrupts go to the idle
-    // stubs
+    // Build the IDT for idling when the guest halts, which VT-x loads as the
+    // host IDT as well. Exceptions keep the OS's gates, and interrupts go to
+    // the idle stubs
     //
     __movsb((UINT8*)idt,
             VpData->SpecialRegisters.Idtr.Base,
             IDT_FIRST_INTERRUPT * sizeof(KIDTENTRY64));
 
     //
-    // No NMI should arrive, so stop this processor for the debugger rather
-    // than run the OS's NMI handler in root mode
+    // NMIs go to the gate that takes SimpleVisor's flush IPIs, and stops
+    // this processor for the debugger on any other NMI rather than run the
+    // OS's NMI handler in root mode
     //
     ShvUtilSetInterruptGate(&idt[IDT_NMI],
                             selector,
@@ -230,7 +231,7 @@ ShvUtilBuildIdleIdt (
 }
 
 UINT32
-ShvUtilTakeInterrupt (
+ShvUtilIdle (
     _In_ PSHV_VP_DATA VpData
     )
 {
@@ -239,62 +240,31 @@ ShvUtilTakeInterrupt (
     UINT32 vector;
 
     //
-    // Take one interrupt through the idle IDT, which the stubs hand back as
-    // its vector. CR8 is the guest's, so the local APIC only delivers
-    // interrupts the guest would take. Returns 0 without one, such as after
-    // an exception the OS's gate handled
-    //
-    idleIdtr.Base = VpData->IdleIdt;
-    idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;
-    __sidt(&hostIdtr.Limit);
-    __lidt(&idleIdtr.Limit);
-    vector = ShvIdleWaitForInterrupt();
-    __lidt(&hostIdtr.Limit);
-    return vector;
-}
-
-UINT32
-ShvUtilIdle (
-    _In_ PSHV_VP_DATA VpData
-    )
-{
-    UINT64 value;
-    UINT32 vector;
-
-    //
     // Halt until an interrupt comes in, and return its vector for the guest,
-    // or 0 if the processor woke up without one
+    // or 0 if the processor woke up without one, such as for a flush IPI. The
+    // host would deliver interrupts and NMIs through the OS's IDT, so load
+    // the idle IDT, whose stubs take the interrupts and whose NMI gate takes
+    // the flush IPIs. CR8 is the guest's, so the local APIC only delivers
+    // interrupts the guest would take
     //
     // Under Hyper-V, read its guest idle MSR when allowed. It returns once an
     // interrupt is pending, even with interrupts disabled, so the interrupt
     // stays pending in the local APIC and the guest takes it once it runs
     //
+    vector = 0;
+    idleIdtr.Base = VpData->IdleIdt;
+    idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;
+    __sidt(&hostIdtr.Limit);
+    __lidt(&idleIdtr.Limit);
     if (VpData->HyperVGuestIdle != FALSE)
     {
         __readmsr(HYPERV_MSR_GUEST_IDLE);
-        return 0;
     }
-
-    //
-    // Otherwise halt. The host would deliver interrupts through the OS's
-    // IDT, so take them through the idle IDT instead
-    //
-    vector = ShvUtilTakeInterrupt(VpData);
-
-    //
-    // SimpleVisor's own flush IPI arrives while idling in root mode. Flush
-    // the guest's mappings, end the interrupt with an EOI, which the guest
-    // never will, and keep waiting, rather than hand the vector to the
-    // guest, which has no handler for it
-    //
-    while (vector == SHV_IPI_FLUSH_VECTOR)
+    else
     {
-        VpData->IpiCounts[ShvIpiFlushIpisReceived]++;
-        ShvArch->FlushGuestMappings(VpData);
-        value = 0;
-        ShvUtilAccessMsr(VpData, APIC_EOI, TRUE, &value);
-        vector = ShvUtilTakeInterrupt(VpData);
+        vector = ShvIdleWaitForInterrupt();
     }
+    __lidt(&hostIdtr.Limit);
     return vector;
 }
 
@@ -315,7 +285,7 @@ ShvUtilAccessMsr (
     // raised #GP, which the guest then gets. In root mode the #GP would go to
     // the OS's IDT, so load the idle IDT, whose #GP gate fails the access.
     // Interrupts are held off in root mode, machine checks keep the OS's
-    // gates, and an NMI stops the processor for the debugger
+    // gates, and NMIs go to the NMI gate
     //
     idleIdtr.Base = VpData->IdleIdt;
     idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;

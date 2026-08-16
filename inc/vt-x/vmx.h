@@ -206,8 +206,7 @@ typedef struct _MTRR_VARIABLE_MASK
 } MTRR_VARIABLE_MASK, *PMTRR_VARIABLE_MASK;
 C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 
-#define CPU_BASED_VIRTUAL_INTR_PENDING          0x00000004
-#define CPU_BASED_INTR_WINDOW_EXITING           0x00000040
+#define CPU_BASED_INTR_WINDOW_EXITING           0x00000004
 #define CPU_BASED_USE_TSC_OFFSETING             0x00000008
 #define CPU_BASED_HLT_EXITING                   0x00000080
 #define CPU_BASED_INVLPG_EXITING                0x00000200
@@ -283,6 +282,7 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define INTR_INFO_TYPE_EXT_INTR                 (0 << 8)
 #define INTR_INFO_TYPE_NMI                      (2 << 8)
 #define INTR_INFO_TYPE_HARD_EXCEPTION           (3 << 8)
+#define INTR_INFO_TYPE_MASK                     (7 << 8)
 #define INTR_INFO_DELIVER_CODE                  (1 << 11)
 #define INTR_INFO_VALID                         (1UL << 31)
 

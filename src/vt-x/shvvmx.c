@@ -277,7 +277,6 @@ ShvVmxSetupVmcsForVp (
     VMX_GDTENTRY64 vmxGdtEntry;
     VMX_EPTP vmxEptp;
     UINT32 secondaryControls;
-    UINT32 pinControls;
 
     //
     // Begin by setting the link pointer to the required value for 4KB VMCS.
@@ -339,25 +338,17 @@ ShvVmxSetupVmcsForVp (
     __vmx_vmwrite(SECONDARY_VM_EXEC_CONTROL, secondaryControls);
 
     //
-    // Exit on external interrupts, so that SimpleVisor sees the IPIs the
-    // guest sends and its own flush IPIs, which otherwise the guest would
-    // take. Exit on NMIs as well and halt for the debugger, as no NMI
-    // should reach the guest. There may also be pin-based options required
-    // by the processor. Use ShvUtilAdjustMsr to add those in
+    // Exit on NMIs, with virtual NMIs so that the guest's own NMI blocking
+    // does not hold them off, as SimpleVisor's flush IPIs are NMIs that the
+    // guest must not take. Any other NMI halts for the debugger. The guest
+    // takes its interrupts directly. There may also be pin-based options
+    // required by the processor. Use ShvUtilAdjustMsr to add those in. The
+    // probe made sure that the NMI controls are available
     //
-    pinControls = ShvUtilAdjustMsr(VpData->MsrData[13],
-                                   PIN_BASED_EXT_INTR_MASK |
+    __vmx_vmwrite(PIN_BASED_VM_EXEC_CONTROL,
+                  ShvUtilAdjustMsr(VpData->MsrData[13],
                                    PIN_BASED_NMI_EXITING |
-                                   PIN_BASED_VIRTUAL_NMIS);
-    if ((pinControls & PIN_BASED_VIRTUAL_NMIS) == 0)
-    {
-        //
-        // Without virtual NMIs an exiting NMI is re-delivered on the next
-        // VM entry, so let NMIs reach the guest as before
-        //
-        pinControls &= ~PIN_BASED_NMI_EXITING;
-    }
-    __vmx_vmwrite(PIN_BASED_VM_EXEC_CONTROL, pinControls);
+                                   PIN_BASED_VIRTUAL_NMIS));
 
     //
     // In order for our choice of supporting RDTSCP and XSAVE/RESTORES above to
@@ -372,15 +363,12 @@ ShvVmxSetupVmcsForVp (
     //
     // Make sure to enter us in x64 mode at all times. VM-Exits set DR7 to 400h
     // and clear IA32_DEBUGCTL, so save the guest ones, which the true controls
-    // let processors leave out. Acknowledge interrupts on exit, which puts the
-    // vector of an exiting external interrupt in the exit interruption
-    // information
+    // let processors leave out
     //
     __vmx_vmwrite(VM_EXIT_CONTROLS,
                            ShvUtilAdjustMsr(VpData->MsrData[15],
                                             VM_EXIT_IA32E_MODE |
-                                            VM_EXIT_SAVE_DEBUG_CNTRLS |
-                                            VM_EXIT_ACK_INTR_ON_EXIT));
+                                            VM_EXIT_SAVE_DEBUG_CNTRLS));
 
     //
     // As we exit back into the guest, make sure to exist in x64 mode as well,
@@ -481,12 +469,15 @@ ShvVmxSetupVmcsForVp (
     __vmx_vmwrite(HOST_GDTR_BASE, (uintptr_t)state->Gdtr.Base);
 
     //
-    // And then the IDT
+    // And then the IDT. Root mode runs with the idle IDT, whose NMI gate
+    // takes the flush IPIs that arrive there, as VT-x does not hold NMIs in
+    // root mode. Its exception gates are the OS's, and interrupts are off.
+    // ShvOsUnprepareProcessor loads the OS's IDT again on unload
     //
     __vmx_vmwrite(GUEST_IDTR_BASE, (uintptr_t)state->Idtr.Base);
     __vmx_vmwrite(GUEST_IDTR_LIMIT, state->Idtr.Limit);
-    __vmx_vmwrite(HOST_IDTR_BASE, (uintptr_t)state->Idtr.Base);
     ShvUtilBuildIdleIdt(VpData);
+    __vmx_vmwrite(HOST_IDTR_BASE, (uintptr_t)VpData->IdleIdt);
 
     //
     // Load CR0
@@ -659,19 +650,15 @@ ShvVmxProbe (
     }
 
     //
-    // The IPIs the guest sends and SimpleVisor's own flush IPIs need exits
-    // on external interrupts, with the vector acknowledged into the exit
-    // interruption information, and the interrupt window to hold interrupts
-    // the guest cannot take yet. Without them, the flush IPIs would be
-    // taken by the guest's code, which has no handler for their vector, or
-    // the held interrupts could not be injected, so do not load
+    // SimpleVisor's flush IPIs are NMIs, which need NMI exiting with virtual
+    // NMIs, so that the guest's own NMI blocking does not hold them off.
+    // Without them, the flush IPIs would reach the guest's NMI handler, so do
+    // not load. The high halves of the true controls are the settings
+    // allowed to be 1
     //
-    if (((VpData->MsrData[MSR_IA32_VMX_TRUE_PINBASED_CTLS - MSR_IA32_VMX_BASIC].HighPart &
-          PIN_BASED_EXT_INTR_MASK) != 0) ||
-        ((VpData->MsrData[MSR_IA32_VMX_TRUE_EXIT_CTLS - MSR_IA32_VMX_BASIC].HighPart &
-          VM_EXIT_ACK_INTR_ON_EXIT) != 0) ||
-        ((VpData->MsrData[MSR_IA32_VMX_TRUE_PROCBASED_CTLS - MSR_IA32_VMX_BASIC].HighPart &
-          (CPU_BASED_INTR_WINDOW_EXITING | CPU_BASED_VIRTUAL_INTR_PENDING)) != 0))
+    if ((VpData->MsrData[MSR_IA32_VMX_TRUE_PINBASED_CTLS - MSR_IA32_VMX_BASIC].HighPart &
+         (PIN_BASED_NMI_EXITING | PIN_BASED_VIRTUAL_NMIS)) !=
+        (PIN_BASED_NMI_EXITING | PIN_BASED_VIRTUAL_NMIS))
     {
         return FALSE;
     }
@@ -691,5 +678,6 @@ const SHV_ARCH ShvVmxArch =
     ShvVmxLaunch,
     ShvVmxHandleExit,
     ShvVmxFlushGuestMappings,
+    ShvVmxTakeHeldNmi,
 };
 

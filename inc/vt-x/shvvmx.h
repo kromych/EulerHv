@@ -69,3 +69,8 @@ VOID
 ShvVmxFlushGuestMappings (
     _In_ PSHV_VP_DATA VpData
     );
+
+VOID
+ShvVmxTakeHeldNmi (
+    _In_ PSHV_VP_DATA VpData
+    );

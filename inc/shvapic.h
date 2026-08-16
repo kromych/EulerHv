@@ -36,26 +36,25 @@ Environment:
 // registers are MSRs at 0x800 plus the register offset
 //
 #define APIC_ID                     0x802
-#define APIC_EOI                    0x80B
 #define APIC_ICR                    0x830
 #define APIC_SELF_IPI               0x83F
 
 //
-// The x2APIC ICR format. The destination APIC ID occupies bits 63:32 and the
-// vector bits 7:0. Delivery mode 0 (fixed) and destination shorthand 0 (none)
-// leave the rest clear
+// The x2APIC ICR format. The destination APIC ID occupies bits 63:32, the
+// delivery mode bits 10:8 and the level bit 14, and destination shorthand 0
+// (none) leaves bits 19:18 clear
 //
 #define APIC_ICR_DESTINATION_SHIFT  32
+#define APIC_ICR_DELIVERY_NMI       (4ULL << 8)
+#define APIC_ICR_LEVEL_ASSERT       (1ULL << 14)
 
 //
-// The vector of the IPI that SimpleVisor sends when it flushes the guest's
-// mappings on another processor. It is never delivered to the guest: the
-// receiving processor exits on the interrupt and flushes in root mode.
-// Vector 0xFE is the highest priority class, so the local APIC accepts it
-// regardless of the guest's TPR
+// SimpleVisor flushes the guest's mappings on another processor with an NMI
+// IPI. It is never delivered to the guest: the receiving processor exits on
+// the NMI, or takes it through SimpleVisor's NMI gate in root mode, and
+// flushes there. Unlike an interrupt, an NMI is not held off by the guest's
+// IF or TPR, and needs no EOI, so the guest's interrupts reach it directly
 //
-#define SHV_IPI_FLUSH_VECTOR        0xFE
-
 //
 // The IPIs SimpleVisor counts per processor, reported on unload and read by
 // vmlab\guest\eulercheck.c
@@ -79,7 +78,8 @@ typedef enum _ShvIpiCounter
 
     //
     // NMIs injected on the explicit command of vmlab\guest\eulercheck.c,
-    // the only NMIs the guest sees. Any other NMI halts for the debugger
+    // the only NMIs the guest sees. Any other NMI that is not a flush IPI
+    // halts for the debugger
     //
     ShvIpiNmisInjected,
     ShvIpiCount

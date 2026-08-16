@@ -99,6 +99,13 @@ typedef struct _SHV_ARCH
     // identity map, called when SimpleVisor's flush IPI arrives
     //
     VOID (*FlushGuestMappings) (_In_ PSHV_VP_DATA VpData);
+
+    //
+    // Take an NMI that root mode holds pending, through the idle IDT's NMI
+    // gate. SVM holds NMIs while the GIF is clear, and VT-x delivers them
+    // in root mode right away, so there is nothing to take
+    //
+    VOID (*TakeHeldNmi) (_In_ PSHV_VP_DATA VpData);
 } SHV_ARCH, *PSHV_ARCH;
 
 extern const SHV_ARCH ShvVmxArch;
@@ -163,14 +170,34 @@ ShvVpSetSecondLevelRoot (
     );
 
 //
-// Publish or clear the flush IPI value of a processor: its x2APIC ID as the
-// ICR destination, with the flush vector. 0 is not a value, so it marks the
-// processor as not running the guest
+// Make this processor a target of the flush IPIs once its guest runs, and
+// stop that in root mode as it leaves the guest, taking the flush IPIs that
+// are still on their way
 //
 VOID
-ShvVpSetApicId (
-    _In_ UINT32 ProcessorIndex,
-    _In_ UINT64 Icr
+ShvVpPublishFlushTarget (
+    _In_ PSHV_VP_DATA VpData
+    );
+
+VOID
+ShvVpWithdrawFlushTarget (
+    _In_ PSHV_VP_DATA VpData
+    );
+
+//
+// Take an NMI as a flush IPI and flush, if one is on its way to this
+// processor, returning FALSE for any other NMI. ShvVpHandleRootNmi does so
+// for the NMI gate of the idle IDT, finding the processor by its stack
+// pointer
+//
+UINT8
+ShvVpTakeFlushIpi (
+    _In_ PSHV_VP_DATA VpData
+    );
+
+UINT8
+ShvVpHandleRootNmi (
+    _In_ UINT64 StackPointer
     );
 
 VOID
@@ -209,21 +236,12 @@ ShvIdleStubs (
     );
 
 //
-// The idle IDT's NMI gate, which stops the processor for the debugger, as
-// no NMI should arrive
+// The idle IDT's NMI gate, which takes SimpleVisor's flush IPIs and stops the
+// processor for the debugger on any other NMI
 //
 VOID
 ShvIdleNmiStub (
     VOID
-    );
-
-//
-// Take one pending interrupt through the idle IDT, returning its vector, or
-// 0 if there was none. The idle IDT must not be loaded by the caller
-//
-UINT32
-ShvUtilTakeInterrupt (
-    _In_ PSHV_VP_DATA VpData
     );
 
 UINT32

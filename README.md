@@ -76,16 +76,18 @@ handled per exit reason, how many TLB flush hypercalls it forwarded, and how
 many IPIs it saw. `vmlab\guest\eulercheck.c` reads the same counters while
 Euler runs.
 
-Euler exits on external interrupts and injects them back, so it sees the
-IPIs the guest sends through the local APIC's ICR. It counts those and its
+Euler counts the IPIs the guest sends through the local APIC's ICR, and its
 own flush IPIs, which it sends to flush the guest's mappings on every
 processor when it forwards the guest's TLB flush hypercalls and Hyper-V
-offers no flush hypercall of its own. The flush IPIs never reach the guest.
-Neither do NMIs: Euler never sends one itself, and the only NMI the guest
-sees is the one `eulercheck nmi` asks Euler to inject on demand. An NMI
-that reaches a running guest anyway halts Euler for the debugger, as
-Windows crashes on NMIs. The address space switch hypercalls, which Windows
-uses with KVA shadow, are emulated by switching the guest's CR3.
+offers no flush hypercall of its own. The flush IPIs are NMIs, which every
+processor takes in root mode whether or not the guest has interrupts
+enabled, and the sender waits for each processor to flush before the
+hypercall returns. They never reach the guest, and the guest takes its own
+interrupts directly. Other NMIs don't reach the guest either: the only NMI
+the guest sees is the one `eulercheck nmi` asks Euler to inject on demand.
+Any other NMI halts Euler for the debugger, as Windows crashes on NMIs. The
+address space switch hypercalls, which Windows uses with KVA shadow, are
+emulated by switching the guest's CR3.
 
 Typical counts, from the Hyper-V lab: Windows Server 2025 on 4 processors,
 nested under Hyper-V on Windows 11 24H2 on an Intel Core Ultra 9 185H, with

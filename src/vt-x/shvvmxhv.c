@@ -276,103 +276,6 @@ ShvVmxFlushGuestMappings (
 }
 
 VOID
-ShvVmxHandleInterrupt (
-    _In_ PSHV_VP_STATE VpState
-    )
-{
-    UINT64 info;
-    UINT64 value;
-    UINT32 vector;
-
-    //
-    // With external-interrupt exiting and acknowledge on exit, the processor
-    // accepted the interrupt and put its vector in the exit interruption
-    // information. The exit is not tied to an instruction, so RIP stays
-    // where it is
-    //
-    // Flush the guest's mappings and drop the interrupt if it is
-    // SimpleVisor's flush IPI, which is never delivered to the guest. The
-    // exit acknowledged it, so end it with an EOI as well, which the guest
-    // never will. Writing 0 to the EOI register clears the highest bit of
-    // the ISR, which is the flush IPI's, as nothing of a higher priority
-    // class can be in service under it
-    //
-    // Otherwise inject the interrupt back, unless the guest cannot take it
-    // yet, in which case it is held until the interrupt window opens
-    //
-    VpState->SkipRipAdvance = TRUE;
-    info = ShvVmxRead(VM_EXIT_INTR_INFO);
-    vector = (UINT32)info & 0xFF;
-    if (vector == SHV_IPI_FLUSH_VECTOR)
-    {
-        VpState->VpData->IpiCounts[ShvIpiFlushIpisReceived]++;
-        ShvVmxFlushGuestMappings(VpState->VpData);
-        value = 0;
-        ShvUtilAccessMsr(VpState->VpData, APIC_EOI, TRUE, &value);
-        return;
-    }
-
-    //
-    // Hold the interrupt and let the processor exit again when the
-    // interrupt window opens, if the guest cannot take it: VM entry rejects
-    // an injected external interrupt with IF clear, or with STI or MOV SS
-    // blocking set. While the window is armed, the processor holds further
-    // interrupts pending instead of exiting on each of them, so one held
-    // vector is enough
-    //
-    if (((ShvVmxRead(GUEST_RFLAGS) & EFLAGS_INTERRUPT_FLAG) == 0) ||
-        ((ShvVmxRead(GUEST_INTERRUPTIBILITY_INFO) &
-          (GUEST_INTR_STATE_STI | GUEST_INTR_STATE_MOV_SS)) != 0))
-    {
-        VpState->VpData->PendingInterrupt = TRUE;
-        VpState->VpData->PendingInterruptVector = vector;
-        __vmx_vmwrite(CPU_BASED_VM_EXEC_CONTROL,
-                      ShvVmxRead(CPU_BASED_VM_EXEC_CONTROL) |
-                      CPU_BASED_VIRTUAL_INTR_PENDING |
-                      CPU_BASED_INTR_WINDOW_EXITING);
-        return;
-    }
-
-    //
-    // The processor accepted the interrupt before exiting, which ends any
-    // STI or MOV SS blocking. Some processors do not clear those bits in
-    // the guest state on such exits, which would block the injected
-    // interrupt on entry and lose it, as the exit already consumed it from
-    // the local APIC, so clear them
-    //
-    __vmx_vmwrite(GUEST_INTERRUPTIBILITY_INFO,
-                  ShvVmxRead(GUEST_INTERRUPTIBILITY_INFO) &
-                  ~(GUEST_INTR_STATE_STI | GUEST_INTR_STATE_MOV_SS));
-    __vmx_vmwrite(VM_ENTRY_INTR_INFO, INTR_INFO_VALID |
-                                      INTR_INFO_TYPE_EXT_INTR |
-                                      vector);
-}
-
-VOID
-ShvVmxHandleInterruptWindow (
-    _In_ PSHV_VP_STATE VpState
-    )
-{
-    //
-    // The interrupt window opened: the guest has IF set and no STI or MOV
-    // SS blocking, so the held interrupt can be injected. The exit is not
-    // tied to an instruction, so RIP stays where it is
-    //
-    VpState->SkipRipAdvance = TRUE;
-    __vmx_vmwrite(CPU_BASED_VM_EXEC_CONTROL,
-                  ShvVmxRead(CPU_BASED_VM_EXEC_CONTROL) &
-                  ~(CPU_BASED_VIRTUAL_INTR_PENDING |
-                    CPU_BASED_INTR_WINDOW_EXITING));
-    if (VpState->VpData->PendingInterrupt != FALSE)
-    {
-        VpState->VpData->PendingInterrupt = FALSE;
-        __vmx_vmwrite(VM_ENTRY_INTR_INFO, INTR_INFO_VALID |
-                                          INTR_INFO_TYPE_EXT_INTR |
-                                          VpState->VpData->PendingInterruptVector);
-    }
-}
-
-VOID
 ShvVmxInjectNmi (
     _In_ PSHV_VP_STATE VpState
     )
@@ -400,13 +303,35 @@ ShvVmxHandleNmi (
     )
 {
     //
-    // No NMI should reach a running guest: SimpleVisor sends none, and the
-    // only NMI the guest sees is the one eulercheck asks for, which is
-    // injected rather than delivered. If one exits anyway, halt for the
-    // debugger instead of dropping it, as a dropped NMI would hide whatever
-    // raised it
+    // NMIs exit, and the exception bitmap is empty, so this is an NMI. It is
+    // SimpleVisor's flush IPI while one is on its way: flush and resume the
+    // guest, which never sees it. The exit is not tied to an instruction, so
+    // RIP stays where it is. NMIs stay blocked until the VM entry
     //
+    // No other NMI should reach a running guest, as the only NMI the guest
+    // sees is the one eulercheck asks for, which is injected rather than
+    // delivered. Halt for the debugger on any other instead of dropping it,
+    // as a dropped NMI would hide whatever raised it
+    //
+    if (((ShvVmxRead(VM_EXIT_INTR_INFO) & INTR_INFO_TYPE_MASK) == INTR_INFO_TYPE_NMI) &&
+        (ShvVpTakeFlushIpi(VpState->VpData) != FALSE))
+    {
+        VpState->SkipRipAdvance = TRUE;
+        return;
+    }
     ShvVmxHandleFatalExit(VpState);
+}
+
+VOID
+ShvVmxTakeHeldNmi (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    //
+    // VT-x delivers NMIs in root mode right away, through the idle IDT that
+    // root mode runs with, so none is ever held
+    //
+    UNREFERENCED_PARAMETER(VpData);
 }
 
 VOID
@@ -894,12 +819,10 @@ ShvVmxHandleExit (
     // RDMSR and WRMSR exit for the MSRs the bitmap traps, which root mode
     // accesses in the guest's place
     //
-    // External interrupts exit with their vector in the exit interruption
-    // information, and are injected back when the guest can take them, or
-    // held for the interrupt window otherwise. SimpleVisor's flush IPIs
-    // flush the guest's mappings and are dropped. NMIs exit with no
-    // exception bitmap set for anything else, and halt for the debugger, as
-    // no NMI should reach the guest
+    // NMIs exit with no exception bitmap set for anything else. SimpleVisor's
+    // flush IPIs flush the guest's mappings and are dropped, and any other
+    // NMI halts for the debugger, as none should reach the guest. External
+    // interrupts do not exit, and reach the guest directly
     //
     // HLT, MONITOR and MWAIT exit when an underlying hypervisor makes them
     // mandatory, as Hyper-V does. MONITOR is a hint and MWAIT may return at
@@ -914,12 +837,6 @@ ShvVmxHandleExit (
     {
     case EXIT_REASON_EXCEPTION_NMI:
         ShvVmxHandleNmi(VpState);
-        break;
-    case EXIT_REASON_EXTERNAL_INTERRUPT:
-        ShvVmxHandleInterrupt(VpState);
-        break;
-    case EXIT_REASON_PENDING_VIRT_INTR:
-        ShvVmxHandleInterruptWindow(VpState);
         break;
     case EXIT_REASON_CPUID:
         ShvVmxHandleCpuid(VpState);
@@ -1072,12 +989,13 @@ ShvVmxEntryHandler (
         Context->Rcx = SHV_CPUID_UNLOAD_RESULT;
 
         //
-        // This processor is leaving the guest, so stop advertising it as a
-        // flush IPI target before it runs the OS's code, which has no
-        // handler for the flush vector
+        // This processor is leaving the guest, so stop it being a flush IPI
+        // target, and take the flush IPIs still on their way, before it runs
+        // the OS's code, whose NMI handler would take them for a hardware
+        // failure
         //
         ShvVpSetSecondLevelRoot(vpData->ProcessorIndex, 0);
-        ShvVpSetApicId(vpData->ProcessorIndex, 0);
+        ShvVpWithdrawFlushTarget(vpData);
 
         //
         // Perform any OS-specific CPU uninitialization work

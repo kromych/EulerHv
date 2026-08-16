@@ -460,12 +460,12 @@ ShvSvmSetupVmcbForVp (
     // Intercept CPUID, HLT, the MSRs in the permission map and the SVM
     // instructions. VMRUN must always be intercepted. Intercept INVD as well,
     // which VT-x always exits on, as it would throw away the cached writes
-    // of the host along with the guest's. External interrupts and NMIs are
-    // intercepted too: the interrupts are held for the VMM, and the NMIs
-    // halt for the debugger
+    // of the host along with the guest's. NMIs are intercepted too, as
+    // SimpleVisor's flush IPIs are NMIs that the guest must not take, and
+    // any other NMI halts for the debugger. The guest takes its interrupts
+    // directly
     //
-    vmcb->InterceptMisc1 = SVM_INTERCEPT_INTR |
-                           SVM_INTERCEPT_NMI |
+    vmcb->InterceptMisc1 = SVM_INTERCEPT_NMI |
                            SVM_INTERCEPT_CPUID |
                            SVM_INTERCEPT_INVD |
                            SVM_INTERCEPT_HLT |
@@ -719,12 +719,13 @@ ShvSvmEntryHandler (
         Context->Rcx = SHV_CPUID_UNLOAD_RESULT;
 
         //
-        // This processor is leaving the guest, so stop advertising it as a
-        // flush IPI target before it runs the OS's code, which has no
-        // handler for the flush vector
+        // This processor is leaving the guest, so stop it being a flush IPI
+        // target, and take the flush IPIs still on their way, before it runs
+        // the OS's code, whose NMI handler would take them for a hardware
+        // failure
         //
         ShvVpSetSecondLevelRoot(vpData->ProcessorIndex, 0);
-        ShvVpSetApicId(vpData->ProcessorIndex, 0);
+        ShvVpWithdrawFlushTarget(vpData);
 
         ShvOsUnprepareProcessor(vpData);
 
@@ -818,21 +819,10 @@ ShvSvmLaunch (
     {
         //
         // The guest resumes in ShvVpInitialize, which checks that this
-        // processor is virtualized. Publish the flush IPI target only now
-        // that the guest is about to run, as an IPI arriving before it
-        // would be taken by the OS's code, which has no handler for the
-        // flush vector. Hold interrupts off until the VMRUN enters the
-        // guest
+        // processor is virtualized, and makes it a flush IPI target
         //
-        _disable();
         __writecr3(VpData->SystemDirectoryTableBase);
         ShvVpMarkVirtualized(VpData->ProcessorIndex);
-        if (VpData->X2ApicEnabled != FALSE)
-        {
-            ShvVpSetApicId(VpData->ProcessorIndex,
-                           (UINT64)VpData->X2ApicId << APIC_ICR_DESTINATION_SHIFT |
-                           SHV_IPI_FLUSH_VECTOR);
-        }
         ShvOsRestoreContext(&frame->Context);
     }
 
@@ -922,21 +912,6 @@ ShvSvmInjectNmi (
 }
 
 VOID
-ShvSvmHandleNmi (
-    _In_ PSHV_VP_STATE VpState
-    )
-{
-    //
-    // No NMI should reach a running guest: SimpleVisor sends none, and the
-    // only NMI the guest sees is the one eulercheck asks for, which is
-    // injected rather than delivered. If one exits anyway, halt for the
-    // debugger instead of dropping it, as a dropped NMI would hide whatever
-    // raised it
-    //
-    ShvSvmHandleFatalExit(VpState);
-}
-
-VOID
 ShvSvmFlushGuestMappings (
     _In_ PSHV_VP_DATA VpData
     )
@@ -949,54 +924,46 @@ ShvSvmFlushGuestMappings (
 }
 
 VOID
-ShvSvmHandleInterrupt (
+ShvSvmTakeHeldNmi (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    KDESCRIPTOR hostIdtr;
+    KDESCRIPTOR idleIdtr;
+
+    //
+    // #VMEXIT cleared the GIF, which holds NMIs pending. Set it for a moment
+    // with the idle IDT loaded, so that a held NMI goes to its NMI gate
+    // rather than to the OS's NMI handler. IF is clear in root mode, so the
+    // interrupts stay pending
+    //
+    idleIdtr.Base = VpData->IdleIdt;
+    idleIdtr.Limit = sizeof(VpData->IdleIdt) - 1;
+    __sidt(&hostIdtr.Limit);
+    __lidt(&idleIdtr.Limit);
+    __svm_stgi();
+    _mm_pause();
+    __svm_clgi();
+    __lidt(&hostIdtr.Limit);
+}
+
+VOID
+ShvSvmHandleNmi (
     _In_ PSHV_VP_STATE VpState
     )
 {
-    PSVM_VMCB vmcb = &VpState->VpData->Vmcb;
-    UINT64 value;
-    UINT32 vector;
-
     //
-    // The INTR intercept holds every external interrupt pending until the
-    // VMM takes it: with the GIF set and interrupts on, the pending
-    // interrupt delivers through the idle IDT, whose stub hands back its
-    // vector. The exit is not tied to an instruction, so RIP stays where
-    // it is
-    //
-    // The flush IPI is never delivered to the guest, so flush the guest's
-    // mappings and end the interrupt with an EOI, which the guest never
-    // will. Writing 0 to the EOI register clears the highest bit of the
-    // ISR, which is the flush IPI's
-    //
-    // The other interrupts are injected into the guest, which takes them
-    // unconditionally on the next VMRUN, and its handler ends them with an
-    // EOI
+    // The NMI intercept leaves the NMI pending until the GIF is set, so take
+    // it through the NMI gate of the idle IDT. The gate flushes for
+    // SimpleVisor's flush IPIs, which the guest never sees, and halts for
+    // the debugger on any other NMI instead of dropping it, as a dropped NMI
+    // would hide whatever raised it. No other NMI should reach a running
+    // guest, as the only NMI the guest sees is the one eulercheck asks for,
+    // which is injected rather than delivered. The exit is not tied to an
+    // instruction, so RIP stays where it is
     //
     VpState->SkipRipAdvance = TRUE;
-    __svm_stgi();
-    vector = ShvUtilTakeInterrupt(VpState->VpData);
-    __svm_clgi();
-    if (vector == 0)
-    {
-        //
-        // Nothing was taken, so the interrupt is still pending, and the
-        // next VMRUN exits again
-        //
-        return;
-    }
-    if (vector == SHV_IPI_FLUSH_VECTOR)
-    {
-        VpState->VpData->IpiCounts[ShvIpiFlushIpisReceived]++;
-        ShvSvmFlushGuestMappings(VpState->VpData);
-        value = 0;
-        ShvUtilAccessMsr(VpState->VpData, APIC_EOI, TRUE, &value);
-        return;
-    }
-    vmcb->InterruptShadow = 0;
-    vmcb->EventInj = SVM_EVENTINJ_VALID |
-                     SVM_EVENTINJ_TYPE_INTR |
-                     vector;
+    ShvSvmTakeHeldNmi(VpState->VpData);
 }
 
 VOID
@@ -1417,17 +1384,14 @@ ShvSvmHandleExit (
     //
     // Unlike VT-x, nested Hyper-V does not force MONITOR and MWAIT exits, and
     // there is no activity state to fail VM entry on. HLT exits so that the
-    // guest idles in the host, as on VT-x. External interrupts and NMIs exit
-    // through their intercepts: the interrupts are taken by the VMM and
-    // injected, and the NMIs halt for the debugger
+    // guest idles in the host, as on VT-x. NMIs exit through their intercept,
+    // for the flush IPIs and to halt for the debugger on any other, and the
+    // guest takes its interrupts directly
     //
     switch (VpState->ExitReason)
     {
     case VMEXIT_NMI:
         ShvSvmHandleNmi(VpState);
-        break;
-    case VMEXIT_INTR:
-        ShvSvmHandleInterrupt(VpState);
         break;
     case VMEXIT_CPUID:
         ShvSvmHandleCpuid(VpState);
@@ -1498,4 +1462,5 @@ const SHV_ARCH ShvSvmArch =
     ShvSvmLaunch,
     ShvSvmHandleExit,
     ShvSvmFlushGuestMappings,
+    ShvSvmTakeHeldNmi,
 };

@@ -59,12 +59,53 @@
     ShvIdleStubs ENDP
 
     ;
-    ; The idle IDT's NMI gate. No NMI should arrive, and running the OS's
-    ; NMI handler in root mode would run its code on the hypervisor stack,
-    ; so break into the debugger and stop this processor. The interrupt
-    ; frame stays on the stack for the debugger
+    ; The idle IDT's NMI gate. Running the OS's NMI handler in root mode would
+    ; run its code on the hypervisor stack, so take SimpleVisor's flush IPIs
+    ; here, with ShvVpHandleRootNmi, saving the volatile registers it may use.
+    ; Any other NMI breaks into the debugger and stops this processor, with
+    ; the interrupt frame and the registers on the stack for the debugger
     ;
+    ; The processor aligns the stack before pushing the 5 qwords of the frame,
+    ; so the 7 pushes below leave it aligned for the XMM saves and the call
+    ;
+    EXTERN ShvVpHandleRootNmi:PROC
+
     ShvIdleNmiStub PROC
+    push    rax
+    push    rcx
+    push    rdx
+    push    r8
+    push    r9
+    push    r10
+    push    r11
+    sub     rsp, 80h            ; home space, and XMM0-XMM5 above it
+    movdqa  [rsp+20h], xmm0
+    movdqa  [rsp+30h], xmm1
+    movdqa  [rsp+40h], xmm2
+    movdqa  [rsp+50h], xmm3
+    movdqa  [rsp+60h], xmm4
+    movdqa  [rsp+70h], xmm5
+    cld
+    mov     rcx, rsp            ; any address on this stack finds the VP data
+    call    ShvVpHandleRootNmi
+    test    al, al
+    jz      ShvIdleNmiStubUnexpected
+    movdqa  xmm0, [rsp+20h]
+    movdqa  xmm1, [rsp+30h]
+    movdqa  xmm2, [rsp+40h]
+    movdqa  xmm3, [rsp+50h]
+    movdqa  xmm4, [rsp+60h]
+    movdqa  xmm5, [rsp+70h]
+    add     rsp, 80h
+    pop     r11
+    pop     r10
+    pop     r9
+    pop     r8
+    pop     rdx
+    pop     rcx
+    pop     rax
+    iretq
+    ShvIdleNmiStubUnexpected:
     int     3
     ShvIdleNmiStubHalt:
     hlt

@@ -39,11 +39,41 @@ static UINT32 ShvVpVirtualizedBitmapCount;
 static volatile UINT64* ShvVpSecondLevelRoots;
 
 //
-// Each virtualized processor's flush IPI value, by processor number: its
-// x2APIC ID as the ICR destination with the flush vector, or 0 while the
-// processor cannot take the IPI, such as before its guest runs
+// Each virtualized processor's flush IPI state, by processor number, a cache
+// line each.
 //
-static volatile UINT64* ShvVpApicIds;
+// Icr sends the processor a flush IPI: its x2APIC ID as the ICR destination
+// with the NMI delivery mode, or 0 while it cannot take one, such as before
+// its guest runs. Senders count themselves in Senders while they use it, so
+// that a processor leaving the guest can wait for them.
+//
+// A sender bumps Requested and waits for Completed to reach it. It sends the
+// NMI only if it is the one to set NmiInFlight, as otherwise an NMI on its
+// way covers the request: the processor clears NmiInFlight before it reads
+// Requested, flushes, and copies what it read to Completed. So at most one
+// flush IPI is on its way to a processor, and none merges with another. An
+// NMI that finds NmiInFlight clear is not a flush IPI.
+//
+// VpData finds the processor from its stack pointer in the NMI gate
+//
+typedef struct DECLSPEC_ALIGN(64) _SHV_VP_FLUSH_TARGET
+{
+    volatile INT64 Icr;
+    volatile INT64 Requested;
+    volatile INT64 Completed;
+    volatile long NmiInFlight;
+    volatile long Senders;
+    PSHV_VP_DATA VpData;
+} SHV_VP_FLUSH_TARGET, *PSHV_VP_FLUSH_TARGET;
+
+static PSHV_VP_FLUSH_TARGET ShvVpFlushTargets;
+
+//
+// How many times a processor leaving the guest polls for the flush IPI on
+// its way. It arrives within microseconds, unless an unexpected NMI took its
+// place, which clears NmiInFlight as well, so this only bounds the wait
+//
+#define SHV_FLUSH_IPI_DRAIN_SPINS   100000
 
 INT32
 ShvVpAllocateTracking (
@@ -72,8 +102,8 @@ ShvVpAllocateTracking (
     }
     __stosq((UINT64*)ShvVpSecondLevelRoots, 0, CpuCount);
 
-    ShvVpApicIds = ShvOsAllocateContigousAlignedMemory(CpuCount * sizeof(UINT64));
-    if (ShvVpApicIds == NULL)
+    ShvVpFlushTargets = ShvOsAllocateContigousAlignedMemory(CpuCount * sizeof(SHV_VP_FLUSH_TARGET));
+    if (ShvVpFlushTargets == NULL)
     {
         ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpSecondLevelRoots, CpuCount * sizeof(UINT64));
         ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpVirtualizedBitmap, size);
@@ -81,7 +111,7 @@ ShvVpAllocateTracking (
         ShvVpSecondLevelRoots = NULL;
         return SHV_STATUS_NO_RESOURCES;
     }
-    __stosq((UINT64*)ShvVpApicIds, 0, CpuCount);
+    __stosb((UINT8*)ShvVpFlushTargets, 0, CpuCount * sizeof(SHV_VP_FLUSH_TARGET));
     ShvVpVirtualizedBitmapCount = CpuCount;
     return SHV_STATUS_SUCCESS;
 }
@@ -97,11 +127,11 @@ ShvVpFreeTracking (
                                          ((ShvVpVirtualizedBitmapCount + 31) / 32) * sizeof(long));
         ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpSecondLevelRoots,
                                          ShvVpVirtualizedBitmapCount * sizeof(UINT64));
-        ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpApicIds,
-                                         ShvVpVirtualizedBitmapCount * sizeof(UINT64));
+        ShvOsFreeContiguousAlignedMemory((VOID*)ShvVpFlushTargets,
+                                         ShvVpVirtualizedBitmapCount * sizeof(SHV_VP_FLUSH_TARGET));
         ShvVpVirtualizedBitmap = NULL;
         ShvVpSecondLevelRoots = NULL;
-        ShvVpApicIds = NULL;
+        ShvVpFlushTargets = NULL;
         ShvVpVirtualizedBitmapCount = 0;
     }
 }
@@ -152,16 +182,120 @@ ShvVpSetSecondLevelRoot (
 }
 
 VOID
-ShvVpSetApicId (
-    _In_ UINT32 ProcessorIndex,
-    _In_ UINT64 Icr
+ShvVpPublishFlushTarget (
+    _In_ PSHV_VP_DATA VpData
     )
 {
+    PSHV_VP_FLUSH_TARGET target = &ShvVpFlushTargets[VpData->ProcessorIndex];
+
     //
-    // The value is the processor's x2APIC ID as the ICR destination with the
-    // flush vector, or 0 while the processor cannot take the IPI
+    // Called by the guest once it runs, as a flush IPI arriving before would
+    // be taken by the OS's NMI handler. The NMI gate needs VpData before the
+    // first flush IPI can arrive. Without x2APIC none can be sent at all
     //
-    ShvVpApicIds[ProcessorIndex] = Icr;
+    target->VpData = VpData;
+    if (VpData->X2ApicEnabled != FALSE)
+    {
+        _InterlockedExchange64(&target->Icr,
+                               ((INT64)VpData->X2ApicId << APIC_ICR_DESTINATION_SHIFT) |
+                               APIC_ICR_LEVEL_ASSERT |
+                               APIC_ICR_DELIVERY_NMI);
+    }
+}
+
+VOID
+ShvVpWithdrawFlushTarget (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    PSHV_VP_FLUSH_TARGET target = &ShvVpFlushTargets[VpData->ProcessorIndex];
+    UINT32 spins;
+
+    //
+    // Called in root mode as this processor leaves the guest, before it runs
+    // the OS's code with the OS's IDT, whose NMI handler would take a flush
+    // IPI for a hardware failure. Stop new senders, with a full barrier
+    // before reading Senders, and wait for those that already picked this
+    // processor to send their IPI
+    //
+    _InterlockedExchange64(&target->Icr, 0);
+    while (target->Senders != 0)
+    {
+        _mm_pause();
+    }
+
+    //
+    // Then take the flush IPI on its way, if any
+    //
+    for (spins = 0;
+         (target->NmiInFlight != 0) && (spins < SHV_FLUSH_IPI_DRAIN_SPINS);
+         spins++)
+    {
+        ShvArch->TakeHeldNmi(VpData);
+        _mm_pause();
+    }
+    target->VpData = NULL;
+}
+
+UINT8
+ShvVpTakeFlushIpi (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    PSHV_VP_FLUSH_TARGET target = &ShvVpFlushTargets[VpData->ProcessorIndex];
+    INT64 requested;
+
+    //
+    // An NMI is a flush IPI while one is on its way, and otherwise
+    // unexpected. Clear NmiInFlight before reading Requested, with a full
+    // barrier, so that a sender that found it set has its request covered
+    // here, and one that finds it clear sends another flush IPI. Only this
+    // processor takes its flush IPIs, one at a time, as NMIs are blocked
+    // until the gate or the VM-Exit returns
+    //
+    if (_InterlockedExchange(&target->NmiInFlight, 0) == 0)
+    {
+        return FALSE;
+    }
+
+    requested = target->Requested;
+    if (requested != target->Completed)
+    {
+        ShvArch->FlushGuestMappings(VpData);
+        target->Completed = requested;
+    }
+    VpData->IpiCounts[ShvIpiFlushIpisReceived]++;
+    return TRUE;
+}
+
+UINT8
+ShvVpHandleRootNmi (
+    _In_ UINT64 StackPointer
+    )
+{
+    PSHV_VP_DATA vpData;
+    UINT32 i;
+
+    //
+    // Called by the NMI gate of the idle IDT. Root mode runs on the stack in
+    // the processor's VP data, which tells the processor the NMI arrived on.
+    // An NMI elsewhere is unexpected
+    //
+    if (ShvVpFlushTargets == NULL)
+    {
+        return FALSE;
+    }
+
+    for (i = 0; i < ShvVpVirtualizedBitmapCount; i++)
+    {
+        vpData = ShvVpFlushTargets[i].VpData;
+        if ((vpData != NULL) &&
+            ((StackPointer - (UINT64)vpData->ShvStackLimit) < KERNEL_STACK_SIZE))
+        {
+            return ShvVpTakeFlushIpi(vpData);
+        }
+    }
+    return FALSE;
 }
 
 VOID
@@ -173,6 +307,8 @@ ShvVpFlushGuestMappings (
     UINT32 i;
     UINT64 root;
     UINT64 icr;
+    INT64 requested;
+    PSHV_VP_FLUSH_TARGET target;
 
     //
     // Nested under Hyper-V, the guest flushes the TLB of other processors with
@@ -203,7 +339,7 @@ ShvVpFlushGuestMappings (
     // Without Hyper-V's flush hypercall, flush the guest's mappings with
     // SimpleVisor's own flush IPIs. Each virtualized processor takes the IPI
     // in root mode and flushes the mappings cached for its second level
-    // identity map, and the sender flushes its own
+    // identity map, and the sender flushes its own. Send them all first
     //
     for (i = 0; i < ShvVpVirtualizedBitmapCount; i++)
     {
@@ -221,18 +357,57 @@ ShvVpFlushGuestMappings (
         }
 
         //
-        // Send the flush IPI. Its value is the processor's x2APIC ID as the
-        // ICR destination with the flush vector, published once the guest
-        // runs, so 0 means the processor cannot take it
+        // Request the flush, and send the flush IPI unless one is already on
+        // its way, which then covers this request. Senders counts this
+        // sender while Icr is used. Icr is 0 while the processor cannot take
+        // the IPI
         //
-        icr = ShvVpApicIds[i];
-        if (icr == 0)
+        target = &ShvVpFlushTargets[i];
+        _InterlockedIncrement(&target->Senders);
+        icr = (UINT64)target->Icr;
+        if (icr != 0)
+        {
+            _InterlockedIncrement64(&target->Requested);
+            if (_InterlockedExchange(&target->NmiInFlight, 1) == 0)
+            {
+                if (ShvUtilAccessMsr(VpData, APIC_ICR, TRUE, &icr) != FALSE)
+                {
+                    VpData->IpiCounts[ShvIpiFlushIpisSent]++;
+                }
+                else
+                {
+                    //
+                    // The local APIC left x2APIC mode, so no flush IPI can be
+                    // sent to that processor anymore, and nobody waits for one
+                    //
+                    _InterlockedExchange64(&target->Icr, 0);
+                    _InterlockedExchange(&target->NmiInFlight, 0);
+                }
+            }
+        }
+        _InterlockedDecrement(&target->Senders);
+    }
+
+    //
+    // The guest takes the flush as done on every processor once its
+    // hypercall returns, so wait for each processor to flush, or to leave
+    // the guest. Take the flush IPIs sent to this processor meanwhile, which
+    // SVM would hold until the next VMRUN, as their senders may be waiting
+    // for this processor in turn
+    //
+    for (i = 0; i < ShvVpVirtualizedBitmapCount; i++)
+    {
+        if (i == VpData->ProcessorIndex)
         {
             continue;
         }
-        if (ShvUtilAccessMsr(VpData, APIC_ICR, TRUE, &icr) != FALSE)
+
+        target = &ShvVpFlushTargets[i];
+        requested = target->Requested;
+        while ((target->Icr != 0) && (target->Completed < requested))
         {
-            VpData->IpiCounts[ShvIpiFlushIpisSent]++;
+            ShvArch->TakeHeldNmi(VpData);
+            _mm_pause();
         }
     }
 }
@@ -425,18 +600,6 @@ ShvVpRestoreAfterLaunch (
     _interlockedbittestandset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
 
     //
-    // Publish the flush IPI target only now that the guest runs, as an IPI
-    // arriving before the launch would be taken by the OS's code, which has
-    // no handler for the flush vector
-    //
-    if (vpData->X2ApicEnabled != FALSE)
-    {
-        ShvVpSetApicId(vpData->ProcessorIndex,
-                       (UINT64)vpData->X2ApicId << APIC_ICR_DESTINATION_SHIFT |
-                       SHV_IPI_FLUSH_VECTOR);
-    }
-
-    //
     // And finally, restore the context, so that all register and stack
     // state is finally restored.
     //
@@ -495,6 +658,14 @@ ShvVpInitialize (
         //
         status = ShvVpLaunch(Data);
     }
+    else
+    {
+        //
+        // The guest runs, back on the OS's stack, so this processor can take
+        // flush IPIs from now on
+        //
+        ShvVpPublishFlushTarget(Data);
+    }
 
     //
     // If we got here, the hypervisor is running :-)
@@ -539,7 +710,6 @@ ShvVpUnloadCallback (
         vpData = (PSHV_VP_DATA)((UINT64)cpuInfo[0] << 32 | (UINT32)cpuInfo[1]);
         _interlockedbittestandreset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
         ShvVpSetSecondLevelRoot(vpData->ProcessorIndex, 0);
-        ShvVpSetApicId(vpData->ProcessorIndex, 0);
         for (i = 0; i < SHV_EXIT_REASON_COUNT; i++)
         {
             _InterlockedExchangeAdd64(&Context->ExitCounts[i], (INT64)vpData->ExitCounts[i]);

@@ -192,13 +192,6 @@ typedef struct _SHV_VP_DATA
             UINT32 X2ApicId;
 
             //
-            // An external interrupt that exited while the guest could not
-            // take it, injected when the interrupt window opens
-            //
-            UINT8 PendingInterrupt;
-            UINT32 PendingInterruptVector;
-
-            //
             // This processor's bit in the bitmap of virtualized processors
             //
             UINT32 ProcessorIndex;
@@ -295,7 +288,9 @@ typedef struct _SHV_VP_DATA
 
     //
     // The IDT loaded while idling when the guest halts. Interrupts go to stubs
-    // that hand their vector to the guest, and the rest to the OS's handlers
+    // that hand their vector to the guest, NMIs to the gate that takes the
+    // flush IPIs, and the rest to the OS's handlers. VT-x loads it as the host
+    // IDT throughout root mode, and SVM wherever it sets the GIF
     //
     DECLSPEC_ALIGN(PAGE_SIZE) KIDTENTRY64 IdleIdt[IDT_ENTRY_COUNT];
 } SHV_VP_DATA, *PSHV_VP_DATA;
