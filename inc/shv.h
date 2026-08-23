@@ -289,6 +289,16 @@ ShvUtilAccessMsr (
     _Inout_ UINT64* Value
     );
 
+//
+// Get the CR3 that the guest's HvCallSwitchVirtualAddressSpace switches to,
+// returning FALSE if its input cannot be read
+//
+UINT8
+ShvUtilGetSwitchAddressSpace (
+    _In_ PSHV_VP_STATE VpState,
+    _Out_ UINT64* AddressSpace
+    );
+
 UINT8
 ShvUtilCountHypercall (
     _In_ PSHV_VP_DATA VpData,

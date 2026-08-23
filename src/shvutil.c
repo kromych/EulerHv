@@ -297,6 +297,38 @@ ShvUtilAccessMsr (
 }
 
 UINT8
+ShvUtilGetSwitchAddressSpace (
+    _In_ PSHV_VP_STATE VpState,
+    _Out_ UINT64* AddressSpace
+    )
+{
+    //
+    // HvCallSwitchVirtualAddressSpace takes the address space to switch to,
+    // its CR3, as its only input. A fast hypercall passes it in RDX, as
+    // Windows does, and a memory-based one at the input GPA in RDX. R8 holds
+    // the output GPA, and the call has no output
+    //
+    if ((VpState->VpRegs->Rcx & HYPERV_HYPERCALL_FAST) != 0)
+    {
+        *AddressSpace = VpState->VpRegs->Rdx;
+    }
+    else if (ShvOsReadPhysical(VpState->VpRegs->Rdx,
+                               sizeof(*AddressSpace),
+                               AddressSpace) == FALSE)
+    {
+        return FALSE;
+    }
+
+    //
+    // Bit 63 asks a CR3 load to keep the TLB entries of the PCID, and is not
+    // part of CR3 itself, so VM entry and VMRUN reject it. The guest's
+    // mappings are flushed anyway
+    //
+    *AddressSpace &= ~CR3_PCID_NO_FLUSH;
+    return TRUE;
+}
+
+UINT8
 ShvUtilCountHypercall (
     _In_ PSHV_VP_DATA VpData,
     _In_ UINT64 HypercallInput

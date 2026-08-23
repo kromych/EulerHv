@@ -33,6 +33,7 @@ Environment:
 #define RPL_MASK                3
 #define CR4_PGE                 (1ULL << 7)
 #define CR4_VMXE                (1ULL << 13)
+#define CR3_PCID_NO_FLUSH       (1ULL << 63)
 #define CPUID_FEATURES_EBX_INVPCID (1UL << 10)
 #define CPUID_FEATURES_EDX_MTRR (1UL << 12)
 #define MTRR_TYPE_UC            0
@@ -372,6 +373,12 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 
 #define HYPERV_HYPERCALL_CODE_MASK              0xffff
 
+//
+// The hypercall input value bit of a fast hypercall, which passes its input
+// in registers rather than at the input GPA in RDX
+//
+#define HYPERV_HYPERCALL_FAST                   (1ULL << 16)
+
 typedef enum _HvCallCode
 {
     HvCallSwitchVirtualAddressSpace        = 0x0001,
@@ -381,17 +388,6 @@ typedef enum _HvCallCode
     HvCallFlushVirtualAddressListEx         = 0x0014,
     HvCallFlushGuestPhysicalAddressSpace    = 0x00af,
 } HvCallCode;
-
-//
-// The input of HvCallSwitchVirtualAddressSpace, at the GPA in R8: the address
-// space to switch to, and the TLB flush flags. SimpleVisor ignores the flags
-// and flushes the guest's mappings all the time
-//
-typedef struct _HYPERV_SWITCH_VIRTUAL_ADDRESS_SPACE
-{
-    UINT64 AddressSpace;
-    UINT64 Flags;
-} HYPERV_SWITCH_VIRTUAL_ADDRESS_SPACE;
 
 //
 // The Hyper-V hypercall results SimpleVisor returns

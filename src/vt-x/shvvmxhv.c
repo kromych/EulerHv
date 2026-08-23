@@ -645,23 +645,23 @@ ShvVmxHandleSwitchAddressSpace (
     _In_ PSHV_VP_STATE VpState
     )
 {
-    HYPERV_SWITCH_VIRTUAL_ADDRESS_SPACE input;
+    UINT64 addressSpace;
 
     //
     // HvCallSwitchVirtualAddressSpace switches the address space of the
-    // calling processor to the CR3 in its input, at the GPA in R8, and
-    // flushes the old space's TLB as the flags say, which SimpleVisor
-    // ignores, always flushing the guest's mappings. It is emulated rather
-    // than forwarded, as a forwarded hypercall would switch SimpleVisor's
-    // own address space, not the guest's. Without the input, fail the call,
-    // as the address space cannot be guessed
+    // calling processor to the CR3 in its input, keeping the TLB entries of
+    // the old one, which SimpleVisor flushes anyway with the guest's
+    // mappings. It is emulated rather than forwarded, as a forwarded
+    // hypercall would switch SimpleVisor's own address space, not the
+    // guest's. Without the input, fail the call, as the address space cannot
+    // be guessed
     //
-    if (ShvOsReadPhysical(VpState->VpRegs->R8, sizeof(input), &input) == FALSE)
+    if (ShvUtilGetSwitchAddressSpace(VpState, &addressSpace) == FALSE)
     {
         VpState->VpRegs->Rax = HYPERV_STATUS_INVALID_PARAMETER;
         return;
     }
-    __vmx_vmwrite(GUEST_CR3, input.AddressSpace);
+    __vmx_vmwrite(GUEST_CR3, addressSpace);
     ShvVmxFlushGuestMappings(VpState->VpData);
     VpState->VpRegs->Rax = HYPERV_STATUS_SUCCESS;
 }
