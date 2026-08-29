@@ -291,7 +291,7 @@ ShvUtilAccessMsr (
 
 //
 // Get the CR3 that the guest's HvCallSwitchVirtualAddressSpace switches to,
-// returning FALSE if its input cannot be read
+// returning FALSE if its input is not in the registers
 //
 UINT8
 ShvUtilGetSwitchAddressSpace (

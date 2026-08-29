@@ -326,25 +326,3 @@ VOID
 ShvUnload (
     VOID
     );
-
-//
-// Map all physical memory into system address space, and read from it. Root
-// mode cannot ask the OS to read, so it does so itself. The declarations
-// live here rather than in shv.h, which the OS layer does not include
-//
-INT32
-ShvOsInitializePhysicalMemory (
-    VOID
-    );
-
-VOID
-ShvOsUninitializePhysicalMemory (
-    VOID
-    );
-
-UINT8
-ShvOsReadPhysical (
-    _In_ UINT64 PhysicalAddress,
-    _In_ UINT32 Length,
-    _Out_ VOID* Buffer
-    );

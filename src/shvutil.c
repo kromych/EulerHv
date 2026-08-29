@@ -304,20 +304,15 @@ ShvUtilGetSwitchAddressSpace (
 {
     //
     // HvCallSwitchVirtualAddressSpace takes the address space to switch to,
-    // its CR3, as its only input. A fast hypercall passes it in RDX, as
-    // Windows does, and a memory-based one at the input GPA in RDX. R8 holds
-    // the output GPA, and the call has no output
+    // its CR3, as its only input. Windows makes it a fast hypercall, which
+    // passes it in RDX. A memory-based one would pass it at the input GPA in
+    // RDX, which root mode has no mapping of, so that one fails
     //
-    if ((VpState->VpRegs->Rcx & HYPERV_HYPERCALL_FAST) != 0)
-    {
-        *AddressSpace = VpState->VpRegs->Rdx;
-    }
-    else if (ShvOsReadPhysical(VpState->VpRegs->Rdx,
-                               sizeof(*AddressSpace),
-                               AddressSpace) == FALSE)
+    if ((VpState->VpRegs->Rcx & HYPERV_HYPERCALL_FAST) == 0)
     {
         return FALSE;
     }
+    *AddressSpace = VpState->VpRegs->Rdx;
 
     //
     // Bit 63 asks a CR3 load to keep the TLB entries of the PCID, and is not
