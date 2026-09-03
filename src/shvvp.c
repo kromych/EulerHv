@@ -507,7 +507,6 @@ ShvVpLaunch (
     )
 {
     INT32 status;
-    UINT64 value;
     //
     // Being nested changes how CPUID and the identity map are handled, and
     // can keep SimpleVisor from running at all
@@ -550,17 +549,15 @@ ShvVpLaunch (
     // Windows enables x2APIC at boot when the processor offers it, and the
     // lab sets the x2apicpolicy BCD option to make it do so. The ID is
     // published only once the guest runs, so a flush IPI never reaches this
-    // processor while it still runs the OS's code
+    // processor while it still runs the OS's code. This still is the OS's
+    // code, with interrupts on, so read the MSRs directly rather than with
+    // the idle IDT, which would take the OS's interrupts. IA32_APIC_BASE
+    // always exists, and the x2APIC ID register does in x2APIC mode
     //
-    value = 0;
-    if (ShvUtilAccessMsr(VpData, APIC_BASE, FALSE, &value) != FALSE)
+    VpData->X2ApicEnabled = (__readmsr(APIC_BASE) & APIC_BASE_X2APIC) != 0;
+    if (VpData->X2ApicEnabled != FALSE)
     {
-        VpData->X2ApicEnabled = (value & APIC_BASE_X2APIC) != 0;
-        if ((VpData->X2ApicEnabled != FALSE) &&
-            (ShvUtilAccessMsr(VpData, APIC_ID, FALSE, &value) != FALSE))
-        {
-            VpData->X2ApicId = (UINT32)value;
-        }
+        VpData->X2ApicId = (UINT32)__readmsr(APIC_ID);
     }
 
     //
