@@ -310,8 +310,12 @@ ShvVmxSetupVmcsForVp (
 
     //
     // Load the MSR bitmap. Unlike other bitmaps, not having an MSR bitmap will
-    // trap all MSRs, so we allocated an empty one.
+    // trap all MSRs, so we allocated an empty one. Trap the writes of the ICR
+    // and the self IPI register, which send IPIs, to count them. The write
+    // bitmap of MSRs 0x0000-0x1FFF is the third 1KB of the 4KB
     //
+    VpData->MsrBitmap[0x800 + APIC_ICR / 8] |= (UINT8)(1 << (APIC_ICR % 8));
+    VpData->MsrBitmap[0x800 + APIC_SELF_IPI / 8] |= (UINT8)(1 << (APIC_SELF_IPI % 8));
     __vmx_vmwrite(MSR_BITMAP, VpData->MsrBitmapPhysicalAddress);
 
     //

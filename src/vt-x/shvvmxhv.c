@@ -570,12 +570,11 @@ ShvVmxHandleMsr (
     UINT64 value;
 
     //
-    // The MSR bitmap traps the MSRs in its ranges, and those outside them,
-    // such as the synthetic MSRs of Hyper-V, always exit. Access them from
-    // root mode, which exits to the hypervisor we are nested under, if any,
-    // and give the guest the #GP that the processor or that hypervisor
-    // raises
-    //
+    // The MSR bitmap traps the ICR and self IPI writes, and the MSRs outside
+    // its ranges, such as the synthetic MSRs of Hyper-V, always exit. Access
+    // them from root mode, which exits to the hypervisor we are nested under,
+    // if any, and give the guest the #GP that the processor or that
+    // hypervisor raises
     //
     // Count the IPIs the guest sends through the ICR and the self IPI
     // register, and pass the writes on. The ICR does not say what the IPI is

@@ -414,8 +414,8 @@ ShvSvmSetMsrPermission (
     bitPos = Msr * 2;
     offset += bitPos / 8;
     bitPos %= 8;
-    MsrBitmap[offset] |= (UINT8)((1 << bitPos) |
-                                 (WriteOnly == FALSE ? (1 << (bitPos + 1)) : 0));
+    MsrBitmap[offset] |= (UINT8)((WriteOnly == FALSE ? (1 << bitPos) : 0) |
+                                 (1 << (bitPos + 1)));
 }
 
 static
@@ -1231,10 +1231,11 @@ ShvSvmHandleMsr (
     }
 
     //
-    // The others exit outside the MSR permission map ranges, such as the
-    // synthetic MSRs of Hyper-V and the Scalable MCA MSRs. Access them from
-    // the host as on VT-x, and give the guest the #GP the processor or the
-    // hypervisor we are nested under raises
+    // The others are the ICR and self IPI writes counted above, and those
+    // outside the MSR permission map ranges, such as the synthetic MSRs of
+    // Hyper-V and the Scalable MCA MSRs. Access them from the host as on
+    // VT-x, and give the guest the #GP the processor or the hypervisor we
+    // are nested under raises
     //
     if (vmcb->ExitInfo1 != 0)
     {
