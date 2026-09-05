@@ -918,9 +918,12 @@ ShvSvmFlushGuestMappings (
 {
     //
     // Flush the guest's mappings cached for its ASID, which is 1, on the
-    // next VMRUN
+    // next VMRUN. Without FlushByAsid that TLB_CONTROL value is reserved and
+    // fails VMRUN, so flush the entire TLB instead
     //
-    VpData->Vmcb.TlbControl = SVM_TLB_CONTROL_FLUSH_ASID;
+    VpData->Vmcb.TlbControl =
+        ((VpData->SvmFeatures & CPUID_SVM_FEATURES_EDX_FLUSH_BY_ASID) != 0) ?
+        SVM_TLB_CONTROL_FLUSH_ASID : SVM_TLB_CONTROL_FLUSH_ALL;
 }
 
 VOID
