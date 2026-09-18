@@ -193,6 +193,7 @@ ShvUtilBuildIdleIdt (
     )
 {
     PKIDTENTRY64 idt = VpData->IdleIdt;
+    PKIDTENTRY64 osIdt = (PKIDTENTRY64)VpData->SpecialRegisters.Idtr.Base;
     UINT16 selector = VpData->ContextFrame.SegCs & ~RPL_MASK;
     UINT32 vector;
 
@@ -220,6 +221,16 @@ ShvUtilBuildIdleIdt (
                                 (uintptr_t)ShvIdleStubs +
                                 (vector - IDT_FIRST_INTERRUPT) * SHV_IDLE_STUB_SIZE);
     }
+
+    //
+    // Windows raises a few software interrupts with INT, which no hardware
+    // interrupt uses: __fastfail, NT_ASSERT and the debug service behind
+    // DbgPrint. Keep the OS's gates for them, so that they still work in root
+    // mode rather than return to the code that raised them as if handled
+    //
+    idt[IDT_FAST_FAIL] = osIdt[IDT_FAST_FAIL];
+    idt[IDT_ASSERTION] = osIdt[IDT_ASSERTION];
+    idt[IDT_DEBUG_SERVICE] = osIdt[IDT_DEBUG_SERVICE];
 
     //
     // ShvUtilAccessMsr loads this IDT as well. Its #GP gate fails the MSR

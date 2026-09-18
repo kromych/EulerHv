@@ -66,6 +66,9 @@ Environment:
 #define IDT_NMI                 2
 #define IDT_GENERAL_PROTECTION  13
 #define IDT_FIRST_INTERRUPT     32
+#define IDT_FAST_FAIL           0x29
+#define IDT_ASSERTION           0x2C
+#define IDT_DEBUG_SERVICE       0x2D
 #ifndef PAGE_SIZE
 #define PAGE_SIZE               4096
 #endif

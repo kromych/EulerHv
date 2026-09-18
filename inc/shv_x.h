@@ -289,8 +289,9 @@ typedef struct _SHV_VP_DATA
     //
     // The IDT loaded while idling when the guest halts. Interrupts go to stubs
     // that hand their vector to the guest, NMIs to the gate that takes the
-    // flush IPIs, and the rest to the OS's handlers. VT-x loads it as the host
-    // IDT throughout root mode, and SVM wherever it sets the GIF
+    // flush IPIs, and the exceptions and the OS's software interrupts to the
+    // OS's handlers. VT-x loads it as the host IDT throughout root mode, and
+    // SVM wherever it sets the GIF
     //
     DECLSPEC_ALIGN(PAGE_SIZE) KIDTENTRY64 IdleIdt[IDT_ENTRY_COUNT];
 } SHV_VP_DATA, *PSHV_VP_DATA;
