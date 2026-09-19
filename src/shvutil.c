@@ -564,6 +564,16 @@ ShvUtilMtrrGetMemoryType (
                 (VpData->MtrrData[i].PhysicalAddressMin <= covered) &&
                 (VpData->MtrrData[i].PhysicalAddressMax >= covered))
             {
+                //
+                // One reaching the end of the page covers the rest of it.
+                // Stop there rather than past its maximum, which wraps to 0
+                // at the top of the address space
+                //
+                if (VpData->MtrrData[i].PhysicalAddressMax >= pageEnd)
+                {
+                    covered = pageEnd + 1;
+                    break;
+                }
                 covered = VpData->MtrrData[i].PhysicalAddressMax + 1;
             }
         }
