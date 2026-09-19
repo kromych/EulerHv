@@ -436,7 +436,7 @@ ShvCaptureSpecialRegisters (
     _sldt(&SpecialRegisters->Ldtr);
 }
 
-UINT8
+VOID
 ShvVpDetectUnderlyingHypervisor (
     _In_ PSHV_VP_DATA VpData
     )
@@ -452,7 +452,7 @@ ShvVpDetectUnderlyingHypervisor (
     VpData->UnderlyingHypervisor = (cpuInfo[2] & HYPERV_HYPERVISOR_PRESENT_BIT) != 0;
     if (VpData->UnderlyingHypervisor == FALSE)
     {
-        return TRUE;
+        return;
     }
 
     //
@@ -467,7 +467,7 @@ ShvVpDetectUnderlyingHypervisor (
                                            (cpuInfo[3] == 'vH t');
     if (VpData->UnderlyingHypervisorIsHyperV == FALSE)
     {
-        return TRUE;
+        return;
     }
     maxLeaf = (UINT32)cpuInfo[0];
 
@@ -498,7 +498,6 @@ ShvVpDetectUnderlyingHypervisor (
     // hypercall by switching the guest's CR3, so neither keeps SimpleVisor
     // from loading
     //
-    return TRUE;
 }
 
 INT32
@@ -508,13 +507,9 @@ ShvVpLaunch (
 {
     INT32 status;
     //
-    // Being nested changes how CPUID and the identity map are handled, and
-    // can keep SimpleVisor from running at all
+    // Being nested changes how CPUID and the identity map are handled
     //
-    if (ShvVpDetectUnderlyingHypervisor(VpData) == FALSE)
-    {
-        return SHV_STATUS_NOT_AVAILABLE;
-    }
+    ShvVpDetectUnderlyingHypervisor(VpData);
 
     //
     // Initialize all the MTRR-related MSRs by reading their value and build
