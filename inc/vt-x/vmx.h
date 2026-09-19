@@ -610,12 +610,6 @@ typedef enum _VmcsField
 #define GUEST_INTR_STATE_MOV_SS         0x00000002
 #define GUEST_INTR_STATE_NMI_BLOCKING   0x00000008
 
-//
-// With virtual NMIs, the processor records an exiting NMI as pending in bit
-// 31 of the guest interruptibility state instead of delivering it
-//
-#define GUEST_INTR_STATE_NMI_PENDING    (1UL << 31)
-
 #define GUEST_PENDING_DBG_BS            (1ULL << 14)
 
 #define VMX_MISC_HLT_ACTIVITY_STATE     (1 << 6)

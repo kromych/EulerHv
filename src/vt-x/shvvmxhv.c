@@ -283,11 +283,10 @@ ShvVmxInjectNmi (
     //
     // Inject an NMI into the guest on the next VM entry, on the explicit
     // command of eulercheck. The guest's NMI handler takes it. An NMI
-    // cannot be injected into an NMI handler, and VM entry rejects it with
-    // an NMI pending, so drop the injection in either case
+    // cannot be injected into an NMI handler, so drop the injection then
     //
     if ((ShvVmxRead(GUEST_INTERRUPTIBILITY_INFO) &
-         (GUEST_INTR_STATE_NMI_BLOCKING | GUEST_INTR_STATE_NMI_PENDING)) != 0)
+         GUEST_INTR_STATE_NMI_BLOCKING) != 0)
     {
         return;
     }
