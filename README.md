@@ -85,9 +85,12 @@ enabled, and the sender waits for each processor to flush before the
 hypercall returns. They never reach the guest, and the guest takes its own
 interrupts directly. Other NMIs don't reach the guest either: the only NMI
 the guest sees is the one `eulercheck nmi` asks Euler to inject on demand.
-Any other NMI halts Euler for the debugger, as Windows crashes on NMIs. The
-address space switch hypercalls, which Windows uses with KVA shadow, are
-emulated by switching the guest's CR3.
+Any other NMI halts Euler for the debugger, as Windows crashes on NMIs.
+Windows itself can send NMIs to the other processors when it bugchecks or
+freezes them for the kernel debugger, so with Euler loaded such a crash can
+leave the system halted rather than write a crash dump. The address space
+switch hypercalls, which Windows uses with KVA shadow, are emulated by
+switching the guest's CR3.
 
 Typical counts, from the Hyper-V lab: Windows Server 2025 on 4 processors,
 nested under Hyper-V on Windows 11 24H2 on an Intel Core Ultra 9 185H, with
