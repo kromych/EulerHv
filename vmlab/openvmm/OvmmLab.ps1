@@ -93,7 +93,7 @@ function Get-OvmmArguments {
         '--vnc', '--vnc-port', [string] $OvmmDefaults.VncPort,
         '--guest-shutdown-action', 'exit',
         '--log-file', (Get-OvmmLabFile "openvmm-$Mode.log"))
-    if ($OvmmDefaults.CpuidOverride) {
+    if ($OvmmDefaults.ContainsKey('CpuidOverride')) {
         #
         # The CPUID override that forces x2APIC, computed by
         # New-OvmmLabVm.ps1 from the host's CPUID
