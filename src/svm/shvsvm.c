@@ -648,7 +648,8 @@ ShvSvmEntryHandler (
     vmcb = &vpData->Vmcb;
 
     //
-    // Build the VP state. The guest RAX is in the VMCB
+    // Build the VP state, and record the exit in the exit trace. The guest
+    // RAX is in the VMCB
     //
     Context->Rax = vmcb->Rax;
     guestContext.GuestEFlags = vmcb->Rflags;
@@ -659,6 +660,22 @@ ShvSvmEntryHandler (
     guestContext.VpData = vpData;
     guestContext.ExitVm = FALSE;
     guestContext.SkipRipAdvance = FALSE;
+    if (guestContext.ExitReason == VMEXIT_MSR)
+    {
+        ShvUtilTraceExit(vpData->ProcessorIndex, guestContext.ExitReason,
+                         (UINT32)Context->Rcx, guestContext.GuestRip,
+                         (vmcb->ExitInfo1 != 0) ? ((Context->Rdx << 32) | (UINT32)Context->Rax) : 0);
+    }
+    else if (guestContext.ExitReason == VMEXIT_VMMCALL)
+    {
+        ShvUtilTraceExit(vpData->ProcessorIndex, guestContext.ExitReason,
+                         (UINT32)Context->Rcx, guestContext.GuestRip, Context->Rdx);
+    }
+    else
+    {
+        ShvUtilTraceExit(vpData->ProcessorIndex, guestContext.ExitReason,
+                         (UINT32)vmcb->ExitIntInfo, guestContext.GuestRip, vmcb->ExitInfo1);
+    }
 
     //
     // VMRUN rejected the VMCB. If the guest never ran, return to ShvSvmLaunch,
@@ -864,6 +881,7 @@ ShvSvmHandleFatalExit (
                     vmcb->ExitIntInfo, vmcb->Rip, vmcb->Rsp, vmcb->Rflags);
     ShvOsDebugPrint("  CPL %u, EFER 0x%llX\n",
                     (UINT32)vmcb->Cpl, vmcb->Efer);
+    ShvUtilTraceDump(32);
     ShvSvmHalt();
 }
 

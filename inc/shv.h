@@ -305,6 +305,41 @@ ShvUtilCountHypercall (
     _In_ UINT64 HypercallInput
     );
 
+//
+// Record a VM-Exit in the exit trace, the debugger's ring of the last exits on
+// all processors, and print its newest entries. MSR exits record the MSR as
+// the interruption info, and the value written, if any, as the qualification.
+// Hypercall exits record the low half of the hypercall input value (RCX), with
+// the call code, and its input address (RDX) likewise.
+// The trace also records events of SimpleVisor's own, as exit reasons no exit
+// has:
+//
+//   SHV_TRACE_FLUSH_REQUEST    a flush requested of another processor: the
+//                              interruption info is its index, with bit 31 set
+//                              if this sent the flush IPI, and the
+//                              qualification its Requested count
+//   SHV_TRACE_NMI              an NMI checked for a flush IPI: the
+//                              interruption info is 1 if one was on its way,
+//                              and the qualification the Requested count read
+//
+#define SHV_TRACE_FLUSH_REQUEST     0xFF00
+#define SHV_TRACE_NMI               0xFF01
+#define SHV_TRACE_FLUSH_IPI_SENT    0x80000000
+
+VOID
+ShvUtilTraceExit (
+    _In_ UINT32 ProcessorIndex,
+    _In_ UINT16 ExitReason,
+    _In_ UINT32 InterruptionInfo,
+    _In_ UINT64 GuestRip,
+    _In_ UINT64 Qualification
+    );
+
+VOID
+ShvUtilTraceDump (
+    _In_ UINT32 Count
+    );
+
 VOID
 ShvUtilMtrrInitialize (
     _In_ PSHV_VP_DATA VpData

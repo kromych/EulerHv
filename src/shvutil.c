@@ -586,3 +586,138 @@ ShvUtilMtrrGetMemoryType (
     }
     return memoryType;
 }
+
+//
+// The exit trace, a ring of the last VM-Exits on all processors, for the
+// debugger. Each entry is two 16-byte halves, each written at once with a
+// 128-bit compare-exchange, and each carrying the low 32 bits of the entry's
+// sequence number, so a reader sees whole halves and tells a torn entry by
+// its two sequence numbers differing. A writer claims the next sequence
+// number, which picks the slot, and stores each half unless a newer entry
+// already got there, which happens only when the ring wraps around faster
+// than a writer stores. So slots never go back to older entries.
+//
+// The newest entry is the one ShvExitTraceSequence numbers, at that number
+// modulo SHV_EXIT_TRACE_COUNT. Sequence numbers start at 1, so an entry that
+// is 0 throughout is unused
+//
+#define SHV_EXIT_TRACE_COUNT        4096
+C_ASSERT((SHV_EXIT_TRACE_COUNT & (SHV_EXIT_TRACE_COUNT - 1)) == 0);
+
+typedef union DECLSPEC_ALIGN(32) _SHV_EXIT_TRACE_ENTRY
+{
+    struct
+    {
+        UINT32 Sequence;
+        UINT16 ProcessorIndex;
+        UINT16 ExitReason;
+        UINT64 GuestRip;
+        UINT32 Check;
+        UINT32 InterruptionInfo;
+        UINT64 Qualification;
+    };
+    volatile INT64 Words[4];
+} SHV_EXIT_TRACE_ENTRY, *PSHV_EXIT_TRACE_ENTRY;
+C_ASSERT(sizeof(SHV_EXIT_TRACE_ENTRY) == 32);
+
+volatile INT64 ShvExitTraceSequence;
+SHV_EXIT_TRACE_ENTRY ShvExitTrace[SHV_EXIT_TRACE_COUNT];
+
+static
+VOID
+ShvUtilTraceStore (
+    _In_ volatile INT64* Half,
+    _In_ INT64 Low,
+    _In_ INT64 High
+    )
+{
+    INT64 current[2];
+
+    //
+    // Start from an unused half. A failed compare-exchange returns what the
+    // half holds, so try again only while that is older
+    //
+    current[0] = current[1] = 0;
+    while (_InterlockedCompareExchange128(Half, High, Low, current) == 0)
+    {
+        if ((INT32)((UINT32)Low - (UINT32)current[0]) <= 0)
+        {
+            break;
+        }
+    }
+}
+
+static
+VOID
+ShvUtilTraceLoad (
+    _In_ volatile INT64* Half,
+    _Out_ INT64* Value
+    )
+{
+    //
+    // A compare-exchange of 0 with 0 reads both quadwords at once, and writes
+    // back only an unused half, unchanged
+    //
+    Value[0] = Value[1] = 0;
+    _InterlockedCompareExchange128(Half, 0, 0, Value);
+}
+
+VOID
+ShvUtilTraceExit (
+    _In_ UINT32 ProcessorIndex,
+    _In_ UINT16 ExitReason,
+    _In_ UINT32 InterruptionInfo,
+    _In_ UINT64 GuestRip,
+    _In_ UINT64 Qualification
+    )
+{
+    UINT64 sequence;
+    PSHV_EXIT_TRACE_ENTRY entry;
+
+    sequence = (UINT64)_InterlockedIncrement64(&ShvExitTraceSequence);
+    entry = &ShvExitTrace[sequence & (SHV_EXIT_TRACE_COUNT - 1)];
+    ShvUtilTraceStore(&entry->Words[0],
+                      (INT64)((UINT32)sequence |
+                              ((UINT64)(UINT16)ProcessorIndex << 32) |
+                              ((UINT64)ExitReason << 48)),
+                      (INT64)GuestRip);
+    ShvUtilTraceStore(&entry->Words[2],
+                      (INT64)((UINT32)sequence | ((UINT64)InterruptionInfo << 32)),
+                      (INT64)Qualification);
+}
+
+VOID
+ShvUtilTraceDump (
+    _In_ UINT32 Count
+    )
+{
+    UINT64 sequence;
+    UINT32 i;
+    INT64 first[2];
+    INT64 second[2];
+
+    //
+    // Print the newest entries first, skipping the torn ones and those a
+    // newer entry already replaced
+    //
+    if (Count > SHV_EXIT_TRACE_COUNT)
+    {
+        Count = SHV_EXIT_TRACE_COUNT;
+    }
+    sequence = (UINT64)ShvExitTraceSequence;
+    ShvOsDebugPrint("  Last %u of %llu VM-Exits, newest first:\n", Count, sequence);
+    for (i = 0; (i < Count) && (sequence > i); i++)
+    {
+        ShvUtilTraceLoad(&ShvExitTrace[(sequence - i) & (SHV_EXIT_TRACE_COUNT - 1)].Words[0], first);
+        ShvUtilTraceLoad(&ShvExitTrace[(sequence - i) & (SHV_EXIT_TRACE_COUNT - 1)].Words[2], second);
+        if (((UINT32)first[0] != (UINT32)(sequence - i)) ||
+            ((UINT32)second[0] != (UINT32)(sequence - i)))
+        {
+            continue;
+        }
+        ShvOsDebugPrint("    %llu: CPU %u, exit 0x%X, info 0x%X, RIP 0x%llX, qualification 0x%llX\n",
+                        sequence - i, (UINT32)((UINT64)first[0] >> 32) & 0xFFFF,
+                        (UINT32)((UINT64)first[0] >> 48), (UINT32)((UINT64)second[0] >> 32),
+                        (UINT64)first[1], (UINT64)second[1]);
+    }
+}

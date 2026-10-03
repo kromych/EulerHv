@@ -255,10 +255,12 @@ ShvVpTakeFlushIpi (
     //
     if (_InterlockedExchange(&target->NmiInFlight, 0) == 0)
     {
+        ShvUtilTraceExit(VpData->ProcessorIndex, SHV_TRACE_NMI, 0, 0, 0);
         return FALSE;
     }
 
     requested = target->Requested;
+    ShvUtilTraceExit(VpData->ProcessorIndex, SHV_TRACE_NMI, 1, 0, (UINT64)requested);
     if (requested != target->Completed)
     {
         ShvArch->FlushGuestMappings(VpData);
@@ -308,6 +310,7 @@ ShvVpFlushGuestMappings (
     UINT64 root;
     UINT64 icr;
     INT64 requested;
+    UINT32 sent;
     PSHV_VP_FLUSH_TARGET target;
 
     //
@@ -367,12 +370,14 @@ ShvVpFlushGuestMappings (
         icr = (UINT64)target->Icr;
         if (icr != 0)
         {
-            _InterlockedIncrement64(&target->Requested);
+            requested = _InterlockedIncrement64(&target->Requested);
+            sent = 0;
             if (_InterlockedExchange(&target->NmiInFlight, 1) == 0)
             {
                 if (ShvUtilAccessMsr(VpData, APIC_ICR, TRUE, &icr) != FALSE)
                 {
                     VpData->IpiCounts[ShvIpiFlushIpisSent]++;
+                    sent = SHV_TRACE_FLUSH_IPI_SENT;
                 }
                 else
                 {
@@ -384,6 +389,8 @@ ShvVpFlushGuestMappings (
                     _InterlockedExchange(&target->NmiInFlight, 0);
                 }
             }
+            ShvUtilTraceExit(VpData->ProcessorIndex, SHV_TRACE_FLUSH_REQUEST,
+                             i | sent, 0, (UINT64)requested);
         }
         _InterlockedDecrement(&target->Senders);
     }

@@ -206,6 +206,7 @@ ShvVmxHandleFatalExit (
     ShvOsDebugPrint("  Entry interruption 0x%llX, exit interruption 0x%llX, IDT vectoring 0x%llX\n",
                     (UINT64)ShvVmxRead(VM_ENTRY_INTR_INFO), (UINT64)ShvVmxRead(VM_EXIT_INTR_INFO),
                     (UINT64)ShvVmxRead(IDT_VECTORING_INFO));
+    ShvUtilTraceDump(32);
     ShvVmxHalt();
 }
 
@@ -955,7 +956,8 @@ ShvVmxEntryHandler (
     guestContext.SkipRipAdvance = FALSE;
 
     //
-    // Count the exit. Higher exit reasons share the last counter
+    // Count the exit, and record it in the exit trace. Higher exit reasons
+    // share the last counter
     //
     if (guestContext.ExitReason < SHV_EXIT_REASON_COUNT)
     {
@@ -964,6 +966,28 @@ ShvVmxEntryHandler (
     else
     {
         vpData->ExitCounts[SHV_EXIT_REASON_COUNT - 1]++;
+    }
+    if (guestContext.ExitReason == EXIT_REASON_MSR_READ)
+    {
+        ShvUtilTraceExit(vpData->ProcessorIndex, guestContext.ExitReason,
+                         (UINT32)Context->Rcx, guestContext.GuestRip, 0);
+    }
+    else if (guestContext.ExitReason == EXIT_REASON_MSR_WRITE)
+    {
+        ShvUtilTraceExit(vpData->ProcessorIndex, guestContext.ExitReason,
+                         (UINT32)Context->Rcx, guestContext.GuestRip,
+                         (Context->Rdx << 32) | (UINT32)Context->Rax);
+    }
+    else if (guestContext.ExitReason == EXIT_REASON_VMCALL)
+    {
+        ShvUtilTraceExit(vpData->ProcessorIndex, guestContext.ExitReason,
+                         (UINT32)Context->Rcx, guestContext.GuestRip, Context->Rdx);
+    }
+    else
+    {
+        ShvUtilTraceExit(vpData->ProcessorIndex, guestContext.ExitReason,
+                         (UINT32)ShvVmxRead(VM_EXIT_INTR_INFO), guestContext.GuestRip,
+                         ShvVmxRead(EXIT_QUALIFICATION));
     }
 
     //
