@@ -281,6 +281,7 @@ cd vmlab\hyperv
 | `openvmm\Invoke-OvmmShvTest.ps1` | Boots a diff of the clean disk with VT-x exposed, and runs the same test as `Invoke-ShvTest.ps1`. |
 | `openvmm\OvmmLab.ps1` | OpenVMM settings and helpers: command lines, start and stop, SSH, OpenVMM's console. |
 | `openvmm\OvmmConsoleRelay.ps1` | Runs OpenVMM with its console on a named pipe, for `Invoke-OvmmConsole`. |
+| `openvmm\Read-OvmmExitTrace.ps1` | Reads SimpleVisor's exit trace and fatal exits from a hung guest's memory, through OpenVMM's console. |
 | `hyperv\New-HvLabVm.ps1` | Creates the Hyper-V VM from the ISO, installs Windows unattended, and takes the `clean` checkpoint. |
 | `hyperv\Invoke-HvShvTest.ps1` | Reverts to `clean`, and runs the same test as `Invoke-ShvTest.ps1` over PowerShell Direct. |
 | `hyperv\HvLab.ps1` | Hyper-V settings and helpers: PowerShell Direct, screenshots, typing into the console. |
