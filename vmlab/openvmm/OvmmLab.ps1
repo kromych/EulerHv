@@ -22,6 +22,7 @@ $script:OvmmDefaults = @{
     Firmware = Join-Path $OvmmRoot '.packages\hyperv.uefi.mscoreuefi.x64.RELEASE\MsvmX64\RELEASE_VS2022\FV\MSVM.fd'
     NetKvm   = Join-Path $OvmmRoot '.packages\virtio-win\NetKVM\2k25\amd64'
     PipeName = 'SimpleVisorLabOvmm'
+    ConsolePipeName = 'SimpleVisorLabOvmmConsole'
     SerialDebuggerMode = $false
     VncPort  = 5931
     SshPort  = 22222
@@ -145,25 +146,101 @@ function Start-OvmmLabVm {
     }
 
     #
-    # OpenVMM's interactive console reads stdin. Give it an empty file rather
-    # than the console of whoever started it.
+    # OpenVMM's interactive console reads stdin. OvmmConsoleRelay.ps1 runs it
+    # with stdin on a pipe, which Invoke-OvmmConsole writes commands to, so
+    # that the console works in a VM that runs hidden, such as a hung one
     #
-    $stdin = Get-OvmmLabFile 'stdin.txt'
-    [System.IO.File]::WriteAllText($stdin, '')
-    $arguments = (Get-OvmmArguments -Mode $Mode | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' '
-    $process = Start-Process -FilePath $OvmmDefaults.Exe -ArgumentList $arguments -PassThru -WindowStyle Hidden `
-                             -RedirectStandardInput $stdin `
-                             -RedirectStandardOutput (Get-OvmmLabFile "openvmm-$Mode.out") `
-                             -RedirectStandardError (Get-OvmmLabFile "openvmm-$Mode.err")
-    Set-Content -Path (Get-OvmmLabFile 'openvmm.pid') -Value "$($process.Id) $($process.StartTime.ToFileTimeUtc())"
-    $process
+    $pidFile = Get-OvmmLabFile 'openvmm.pid'
+    Remove-Item -Path $pidFile -ErrorAction SilentlyContinue
+    $argumentsFile = Get-OvmmLabFile 'openvmm-arguments.txt'
+    [System.IO.File]::WriteAllText($argumentsFile,
+        ((Get-OvmmArguments -Mode $Mode | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' '))
+    $relayArguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass',
+                        '-File', (Join-Path $PSScriptRoot 'OvmmConsoleRelay.ps1'),
+                        '-Exe', $OvmmDefaults.Exe, '-ArgumentsFile', $argumentsFile,
+                        '-StdOut', (Get-OvmmLabFile "openvmm-$Mode.out"),
+                        '-StdErr', (Get-OvmmLabFile "openvmm-$Mode.err"),
+                        '-PidFile', $pidFile, '-PipeName', $OvmmDefaults.ConsolePipeName)
+    Start-Process -FilePath (Get-Process -Id $PID).Path -WindowStyle Hidden `
+                  -ArgumentList (($relayArguments | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' ')
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        $process = Get-OvmmLabVm
+        if ($process) {
+            return $process
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    throw "OpenVMM did not start; see $(Get-OvmmLabFile "openvmm-$Mode.err")."
+}
+
+function Invoke-OvmmConsole {
+    param (
+        [Parameter(Mandatory)] [string] $Command,
+        [ValidateSet('install', 'maintain', 'test')] [string] $Mode = 'test',
+        [int] $TimeoutSec = 60,
+        [int] $QuietSec = 2
+    )
+
+    #
+    # Run a command on the running VM's OpenVMM console, such as
+    # "read-memory <gpa> <size>", or "dump-state <path>", which writes all
+    # registers and memory to a file WinDbg opens. Returns what OpenVMM
+    # printed after the command, until it stayed quiet for QuietSec, or the
+    # timeout. Commands that print nothing return nothing
+    #
+    if (-not (Get-OvmmLabVm)) {
+        throw 'The lab VM does not run.'
+    }
+    $files = @((Get-OvmmLabFile "openvmm-$Mode.out"), (Get-OvmmLabFile "openvmm-$Mode.err"))
+    $start = @($files | ForEach-Object { (Get-Item $_).Length })
+    $pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', $OvmmDefaults.ConsolePipeName,
+                [System.IO.Pipes.PipeDirection]::Out)
+    try {
+        $pipe.Connect(10000)
+        $bytes = [System.Text.Encoding]::ASCII.GetBytes("$Command`n")
+        $pipe.Write($bytes, 0, $bytes.Length)
+        $pipe.Flush()
+    }
+    finally {
+        $pipe.Dispose()
+    }
+
+    #
+    # Commands answer on stdout, and fail on stderr, where OpenVMM also logs
+    #
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    $length = $start
+    $changed = Get-Date
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 250
+        $current = @($files | ForEach-Object { (Get-Item $_).Length })
+        if (Compare-Object $current $length -SyncWindow 0) {
+            $length = $current
+            $changed = Get-Date
+        }
+        elseif ((Compare-Object $length $start -SyncWindow 0) -and
+                (((Get-Date) - $changed).TotalSeconds -ge $QuietSec)) {
+            break
+        }
+    }
+    for ($i = 0; $i -lt $files.Count; $i++) {
+        $stream = New-Object System.IO.FileStream($files[$i], 'Open', 'Read', 'ReadWrite')
+        try {
+            [void] $stream.Seek($start[$i], 'Begin')
+            (New-Object System.IO.StreamReader($stream)).ReadToEnd()
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
 }
 
 function Stop-OvmmLabVm {
     #
     # OpenVMM runs the VM and its VNC server in child processes ("openvmm.exe
     # vm" and "openvmm.exe vnc"), so stop those too, not just the process that
-    # was started
+    # was started. Its console relay exits with it
     #
     $process = Get-OvmmLabVm
     if ($process) {

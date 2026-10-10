@@ -207,6 +207,12 @@ cd vmlab\openvmm
   in OpenVMM's `debugger-mode`. That mode delays the guest's reads of an empty
   serial port, and Windows KD waits for data in exactly such loops, so kd stalls
   for minutes after connecting, and boot is three times slower.
+- **OpenVMM's own console** takes commands while the VM runs, even a hung one,
+  through `Invoke-OvmmConsole` (dot-source `OvmmLab.ps1`). For example,
+  `inspect -r -l 6 vm/partition/vp/0` shows a processor's registers,
+  `read-memory <gpa> <size>` reads guest physical memory, and
+  `dump-state '<path>.vmrs'` dumps all of it. The console splits a command like
+  a shell, so quote paths with single quotes.
 - **The lab** lives in `Documents\Virtual Machines\SimpleVisorLabOvmm`: the
   disk, the SSH key, and OpenVMM's logs and output.
 
@@ -273,7 +279,8 @@ cd vmlab\hyperv
 | `LabCommon.ps1` | Shared settings (VM name and location, guest credentials) and helpers: install media, kd, VNC, result checks. |
 | `openvmm\New-OvmmLabVm.ps1` | Creates the OpenVMM VM's clean disk from the ISO, installing Windows unattended. |
 | `openvmm\Invoke-OvmmShvTest.ps1` | Boots a diff of the clean disk with VT-x exposed, and runs the same test as `Invoke-ShvTest.ps1`. |
-| `openvmm\OvmmLab.ps1` | OpenVMM settings and helpers: command lines, start and stop, SSH. |
+| `openvmm\OvmmLab.ps1` | OpenVMM settings and helpers: command lines, start and stop, SSH, OpenVMM's console. |
+| `openvmm\OvmmConsoleRelay.ps1` | Runs OpenVMM with its console on a named pipe, for `Invoke-OvmmConsole`. |
 | `hyperv\New-HvLabVm.ps1` | Creates the Hyper-V VM from the ISO, installs Windows unattended, and takes the `clean` checkpoint. |
 | `hyperv\Invoke-HvShvTest.ps1` | Reverts to `clean`, and runs the same test as `Invoke-ShvTest.ps1` over PowerShell Direct. |
 | `hyperv\HvLab.ps1` | Hyper-V settings and helpers: PowerShell Direct, screenshots, typing into the console. |
