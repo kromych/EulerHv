@@ -872,6 +872,7 @@ ShvSvmHandleFatalExit (
     vpData->FatalGuestPhysicalAddress = vmcb->ExitInfo2;
     vpData->FatalGuestLinearAddress = 0;
     vpData->FatalGuestRip = vmcb->Rip;
+    vpData->FatalGuestRsp = vmcb->Rsp;
 
     ShvOsDebugPrint("SimpleVisor: fatal #VMEXIT on CPU %d, VP data 0x%llX\n",
                     vpData->ProcessorIndex, (UINT64)vpData);

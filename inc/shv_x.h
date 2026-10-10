@@ -212,13 +212,15 @@ typedef struct _SHV_VP_DATA
             UINT64 IpiCounts[ShvIpiCount];
 
             //
-            // The VM-Exit SimpleVisor could not handle, for the debugger
+            // The VM-Exit SimpleVisor could not handle, and the guest's stack
+            // then, for the debugger
             //
             UINT64 FatalExitReason;
             UINT64 FatalExitQualification;
             UINT64 FatalGuestPhysicalAddress;
             UINT64 FatalGuestLinearAddress;
             UINT64 FatalGuestRip;
+            UINT64 FatalGuestRsp;
 
             //
             // The input of HvCallFlushGuestPhysicalAddressSpace, the second

@@ -184,6 +184,7 @@ ShvVmxHandleFatalExit (
     vpData->FatalGuestPhysicalAddress = ShvVmxRead(GUEST_PHYSICAL_ADDRESS);
     vpData->FatalGuestLinearAddress = ShvVmxRead(GUEST_LINEAR_ADDRESS);
     vpData->FatalGuestRip = VpState->GuestRip;
+    vpData->FatalGuestRsp = VpState->GuestRsp;
 
     //
     // Print them along with the guest state that VM entry checks, which the
