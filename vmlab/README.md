@@ -115,7 +115,10 @@ VM-Exits it handled per exit reason. While it's loaded, `eulercheck.exe` also
 reads these counters, through a magic CPUID leaf, and the test shows them as
 `VM-Exits while loaded`. To catch the debugger output during a test, pass
 `-AttachDebugger`. kd then stays attached in its own window, the test shows
-its output at the end, and logs it to `out\kd-attached.log`. Or attach with:
+its output at the end, and logs it to `out\kd-attached.log`. When the guest
+breaks in, such as when SimpleVisor halts, kd runs `kd-halt.txt`, which logs
+the bugcheck, if any, and each processor's guest stack as of its fatal exit.
+Or attach with:
 
 ```powershell
 .\Connect-LabDebugger.ps1            # WinDbg

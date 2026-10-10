@@ -1,0 +1,11 @@
+$$ kd commands that Test-LabKernelDebugger -KeepAttached runs when the guest
+$$ breaks in, such as when SimpleVisor halts on an exit it cannot handle. They
+$$ show the bugcheck, if any, and each processor's guest stack as of its fatal
+$$ exit, which the processor's own stack does not show while it halts in root
+$$ mode. The exit trace is in euler!ShvExitTrace
+.echo SHVLAB-HALT
+.bugcheck
+.for (r $t0 = 0; @$t0 < dwo(nt!KeNumberProcessors); r $t0 = @$t0 + 1) { r $t1 = poi(poi(euler!ShvVpFlushTargets) + @$t0 * @@c++(sizeof(euler!_SHV_VP_FLUSH_TARGET)) + @@c++(#FIELD_OFFSET(euler!_SHV_VP_FLUSH_TARGET, VpData))); .if (@$t1 != 0) { .printf "CPU %d: fatal exit 0x%I64x, guest RIP %p, RSP %p\n", @$t0, @@c++(((euler!_SHV_VP_DATA*)@$t1)->FatalExitReason), @@c++(((euler!_SHV_VP_DATA*)@$t1)->FatalGuestRip), @@c++(((euler!_SHV_VP_DATA*)@$t1)->FatalGuestRsp); kn = @@c++(((euler!_SHV_VP_DATA*)@$t1)->FatalGuestRsp) @@c++(((euler!_SHV_VP_DATA*)@$t1)->FatalGuestRip) 40; dps @@c++(((euler!_SHV_VP_DATA*)@$t1)->FatalGuestRsp) L40 } }
+dx euler!ShvExitTraceSequence
+lm
+.echo SHVLAB-HALT-DONE

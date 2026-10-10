@@ -611,7 +611,9 @@ function Test-LabKernelDebugger {
     # functions of a script that dot-sourced this file.
     #
     # With KeepAttached, kd stays attached in its own window and logs to
-    # LogPath. Stop it with Stop-LabKernelDebugger.
+    # LogPath. Stop it with Stop-LabKernelDebugger. When the guest breaks in
+    # later, such as when SimpleVisor halts, kd runs kd-halt.txt, which logs
+    # the guest's stacks and the bugcheck, if any, and then waits.
     #
     if (-not $TestGuest) {
         $TestGuest = { Test-GuestFile -Vmx $Vmx -Path "$GuestLabDir\ready.txt" }
@@ -630,6 +632,14 @@ function Test-LabKernelDebugger {
     $log = if ($LogPath) { $LogPath } else { Join-Path ([System.IO.Path]::GetTempPath()) "shvlab-kd-$PID.log" }
     Remove-Item -Path $log -ErrorAction SilentlyContinue
     $arguments = (Get-LabDebuggerArguments -PipeName $PipeName) + @('-logo', $log, '-c', "vertarget; .echo $marker; g")
+    if ($KeepAttached) {
+        #
+        # kd takes backslashes in a quoted command for escapes, so pass the
+        # script's path with forward slashes
+        #
+        $haltScript = (Join-Path $PSScriptRoot 'kd-halt.txt') -replace '\\', '/'
+        $arguments[-1] = "vertarget; .echo $marker; sxe -c `"`$`$><$haltScript`" bpe; g"
+    }
 
     #
     # Symbols are not needed for this, so keep kd from going through whatever
