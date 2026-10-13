@@ -286,7 +286,11 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define INTR_INFO_TYPE_EXT_INTR                 (0 << 8)
 #define INTR_INFO_TYPE_NMI                      (2 << 8)
 #define INTR_INFO_TYPE_HARD_EXCEPTION           (3 << 8)
+#define INTR_INFO_TYPE_SOFT_INTR                (4 << 8)
+#define INTR_INFO_TYPE_PRIV_SW_EXCEPTION        (5 << 8)
+#define INTR_INFO_TYPE_SOFT_EXCEPTION           (6 << 8)
 #define INTR_INFO_TYPE_MASK                     (7 << 8)
+#define INTR_INFO_VECTOR_MASK                   0xff
 #define INTR_INFO_DELIVER_CODE                  (1 << 11)
 #define INTR_INFO_VALID                         (1UL << 31)
 

@@ -298,6 +298,44 @@ ShvVmxInjectNmi (
     VpState->VpData->IpiCounts[ShvIpiNmisInjected]++;
 }
 
+static
+VOID
+ShvVmxReinjectEvent (
+    VOID
+    )
+{
+    uintptr_t vectoring;
+
+    //
+    // An exit during the delivery of an event, such as an NMI arriving while
+    // the guest takes an interrupt, leaves the event undelivered. Deliver it
+    // on the next VM entry, with its error code, and the length of the
+    // instruction that raised it for software events
+    //
+    vectoring = ShvVmxRead(IDT_VECTORING_INFO);
+    if ((vectoring & INTR_INFO_VALID) == 0)
+    {
+        return;
+    }
+
+    __vmx_vmwrite(VM_ENTRY_INTR_INFO, vectoring & (INTR_INFO_VALID |
+                                                   INTR_INFO_DELIVER_CODE |
+                                                   INTR_INFO_TYPE_MASK |
+                                                   INTR_INFO_VECTOR_MASK));
+    if ((vectoring & INTR_INFO_DELIVER_CODE) != 0)
+    {
+        __vmx_vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, ShvVmxRead(IDT_VECTORING_ERROR_CODE));
+    }
+    switch (vectoring & INTR_INFO_TYPE_MASK)
+    {
+    case INTR_INFO_TYPE_SOFT_INTR:
+    case INTR_INFO_TYPE_PRIV_SW_EXCEPTION:
+    case INTR_INFO_TYPE_SOFT_EXCEPTION:
+        __vmx_vmwrite(VM_ENTRY_INSTRUCTION_LEN, ShvVmxRead(VM_EXIT_INSTRUCTION_LEN));
+        break;
+    }
+}
+
 VOID
 ShvVmxHandleNmi (
     _In_ PSHV_VP_STATE VpState
@@ -306,8 +344,9 @@ ShvVmxHandleNmi (
     //
     // NMIs exit, and the exception bitmap is empty, so this is an NMI. It is
     // SimpleVisor's flush IPI while one is on its way: flush and resume the
-    // guest, which never sees it. The exit is not tied to an instruction, so
-    // RIP stays where it is. NMIs stay blocked until the VM entry
+    // guest, which never sees it, after delivering the event the NMI
+    // interrupted. The exit is not tied to an instruction, so RIP stays where
+    // it is. NMIs stay blocked until the VM entry
     //
     // No other NMI should reach a running guest, as the only NMI the guest
     // sees is the one eulercheck asks for, which is injected rather than
@@ -317,6 +356,7 @@ ShvVmxHandleNmi (
     if (((ShvVmxRead(VM_EXIT_INTR_INFO) & INTR_INFO_TYPE_MASK) == INTR_INFO_TYPE_NMI) &&
         (ShvVpTakeFlushIpi(VpState->VpData) != FALSE))
     {
+        ShvVmxReinjectEvent();
         VpState->SkipRipAdvance = TRUE;
         return;
     }
