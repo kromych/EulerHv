@@ -74,3 +74,8 @@ VOID
 ShvVmxTakeHeldNmi (
     _In_ PSHV_VP_DATA VpData
     );
+
+UINT8
+ShvVmxReflectNmi (
+    _In_ PSHV_VP_DATA VpData
+    );

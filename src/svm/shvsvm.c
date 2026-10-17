@@ -969,6 +969,21 @@ ShvSvmTakeHeldNmi (
     __lidt(&hostIdtr.Limit);
 }
 
+UINT8
+ShvSvmReflectNmi (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    UNREFERENCED_PARAMETER(VpData);
+
+    //
+    // SVM has no NMI window exit to tell when the guest can take an NMI, as
+    // EVENTINJ delivers one even inside the guest's NMI handler. That would
+    // take intercepting IRET, or vNMI, so halt for the debugger instead
+    //
+    return FALSE;
+}
+
 VOID
 ShvSvmHandleNmi (
     _In_ PSHV_VP_STATE VpState
@@ -979,10 +994,9 @@ ShvSvmHandleNmi (
     // it through the NMI gate of the idle IDT. The gate flushes for
     // SimpleVisor's flush IPIs, which the guest never sees, and halts for
     // the debugger on any other NMI instead of dropping it, as a dropped NMI
-    // would hide whatever raised it. No other NMI should reach a running
-    // guest, as the only NMI the guest sees is the one eulercheck asks for,
-    // which is injected rather than delivered. The exit is not tied to an
-    // instruction, so RIP stays where it is
+    // would hide whatever raised it, and SVM cannot pass it on to the guest
+    // yet (see ShvSvmReflectNmi). The exit is not tied to an instruction, so
+    // RIP stays where it is
     //
     VpState->SkipRipAdvance = TRUE;
     ShvSvmTakeHeldNmi(VpState->VpData);
@@ -1486,4 +1500,5 @@ const SHV_ARCH ShvSvmArch =
     ShvSvmHandleExit,
     ShvSvmFlushGuestMappings,
     ShvSvmTakeHeldNmi,
+    ShvSvmReflectNmi,
 };

@@ -84,6 +84,7 @@ static const char* IpiCounterNames[] =
     "flush_sent",
     "flush_received",
     "nmis_injected",
+    "nmis_reflected",
 };
 
 #define IPI_COUNTERS (sizeof(IpiCounterNames) / sizeof(IpiCounterNames[0]))

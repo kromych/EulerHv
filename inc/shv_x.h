@@ -184,6 +184,13 @@ typedef struct _SHV_VP_DATA
             UINT8 HltActivityStateRejected;
 
             //
+            // Whether an NMI that is not a flush IPI waits to be passed on to
+            // the guest, once it can take one. Set by its NMI exit or by the
+            // NMI gate in root mode, and cleared by the NMI window exit
+            //
+            volatile long NmiReflectPending;
+
+            //
             // Whether the guest's local APIC is in x2APIC mode, which the
             // flush IPIs need, and its x2APIC ID. The magic detection leaf
             // reports the mode, and the ID is published once the guest runs

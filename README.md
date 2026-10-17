@@ -83,12 +83,14 @@ offers no flush hypercall of its own. The flush IPIs are NMIs, which every
 processor takes in root mode whether or not the guest has interrupts
 enabled, and the sender waits for each processor to flush before the
 hypercall returns. They never reach the guest, and the guest takes its own
-interrupts directly. Other NMIs don't reach the guest either: the only NMI
-the guest sees is the one `eulercheck nmi` asks Euler to inject on demand.
-Any other NMI halts Euler for the debugger, as Windows crashes on NMIs.
-Windows itself can send NMIs to the other processors when it bugchecks or
-freezes them for the kernel debugger, so with Euler loaded such a crash can
-leave the system halted rather than write a crash dump. The address space
+interrupts directly. Other NMIs are the guest's. Windows sends them to the
+other processors when it bugchecks, and when it freezes them for the kernel
+debugger and one of them doesn't take the freeze IPI in time, which even a
+`DbgPrint` does with a debugger enabled. On VT-x, Euler passes them on to the
+guest once it can take an NMI, and `eulercheck nmi` has Euler inject one on
+demand. On SVM, which has no NMI window exit to tell when the guest can take
+one, any other NMI halts Euler for the debugger, so a crash or a debugger
+freeze can leave the system halted rather than write a crash dump. The address space
 switch hypercalls, which Windows uses with KVA shadow, are emulated by
 switching the guest's CR3.
 

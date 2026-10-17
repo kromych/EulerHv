@@ -336,6 +336,65 @@ ShvVmxReinjectEvent (
     }
 }
 
+UINT8
+ShvVmxReflectNmi (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    //
+    // Hold the NMI for the guest, and exit once it can take one, outside its
+    // own NMI handler, which an NMI cannot be injected into. Only this and
+    // the NMI window exit change the processor-based controls after setup,
+    // and the NMI window exit stops them before it takes the pending NMI, so
+    // this works from the NMI gate in root mode as well. NMIs coalesce while
+    // one is pending, as they do in hardware
+    //
+    _InterlockedExchange(&VpData->NmiReflectPending, 1);
+    __vmx_vmwrite(CPU_BASED_VM_EXEC_CONTROL,
+                  ShvVmxRead(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_VIRTUAL_NMI_PENDING);
+    VpData->IpiCounts[ShvIpiNmisReflected]++;
+    return TRUE;
+}
+
+VOID
+ShvVmxHandleNmiWindow (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSHV_VP_DATA vpData = VpState->VpData;
+
+    //
+    // The guest can take an NMI. Stop the NMI window exits first, and only
+    // then take the pending NMI, so that one arriving in root mode meanwhile
+    // either is the one injected here or sets them again. The exit is not
+    // tied to an instruction, so RIP stays where it is
+    //
+    VpState->SkipRipAdvance = TRUE;
+    __vmx_vmwrite(CPU_BASED_VM_EXEC_CONTROL,
+                  ShvVmxRead(CPU_BASED_VM_EXEC_CONTROL) & ~CPU_BASED_VIRTUAL_NMI_PENDING);
+    if (_InterlockedExchange(&vpData->NmiReflectPending, 0) == 0)
+    {
+        return;
+    }
+
+    //
+    // Some processors exit for the NMI window while STI or MOV SS blocks
+    // events, which VM entry rejects an injected NMI under. Wait for the
+    // next instruction then
+    //
+    if ((ShvVmxRead(GUEST_INTERRUPTIBILITY_INFO) &
+         (GUEST_INTR_STATE_STI | GUEST_INTR_STATE_MOV_SS)) != 0)
+    {
+        _InterlockedExchange(&vpData->NmiReflectPending, 1);
+        __vmx_vmwrite(CPU_BASED_VM_EXEC_CONTROL,
+                      ShvVmxRead(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_VIRTUAL_NMI_PENDING);
+        return;
+    }
+    __vmx_vmwrite(VM_ENTRY_INTR_INFO, INTR_INFO_VALID |
+                                      INTR_INFO_TYPE_NMI |
+                                      INTR_INFO_VECTOR_NMI);
+}
+
 VOID
 ShvVmxHandleNmi (
     _In_ PSHV_VP_STATE VpState
@@ -344,19 +403,20 @@ ShvVmxHandleNmi (
     //
     // NMIs exit, and the exception bitmap is empty, so this is an NMI. It is
     // SimpleVisor's flush IPI while one is on its way: flush and resume the
-    // guest, which never sees it, after delivering the event the NMI
-    // interrupted. The exit is not tied to an instruction, so RIP stays where
-    // it is. NMIs stay blocked until the VM entry
+    // guest, which never sees it. Any other NMI is the guest's, such as the
+    // one Windows freezes the processors with for the debugger when one of
+    // them does not take the freeze IPI in time, so pass it on. Either way,
+    // first deliver the event the NMI interrupted. The exit is not tied to
+    // an instruction, so RIP stays where it is. NMIs stay blocked until the
+    // VM entry
     //
-    // No other NMI should reach a running guest, as the only NMI the guest
-    // sees is the one eulercheck asks for, which is injected rather than
-    // delivered. Halt for the debugger on any other instead of dropping it,
-    // as a dropped NMI would hide whatever raised it
-    //
-    if (((ShvVmxRead(VM_EXIT_INTR_INFO) & INTR_INFO_TYPE_MASK) == INTR_INFO_TYPE_NMI) &&
-        (ShvVpTakeFlushIpi(VpState->VpData) != FALSE))
+    if ((ShvVmxRead(VM_EXIT_INTR_INFO) & INTR_INFO_TYPE_MASK) == INTR_INFO_TYPE_NMI)
     {
         ShvVmxReinjectEvent();
+        if (ShvVpTakeFlushIpi(VpState->VpData) == FALSE)
+        {
+            ShvVmxReflectNmi(VpState->VpData);
+        }
         VpState->SkipRipAdvance = TRUE;
         return;
     }
@@ -861,8 +921,8 @@ ShvVmxHandleExit (
     //
     // NMIs exit with no exception bitmap set for anything else. SimpleVisor's
     // flush IPIs flush the guest's mappings and are dropped, and any other
-    // NMI halts for the debugger, as none should reach the guest. External
-    // interrupts do not exit, and reach the guest directly
+    // NMI is passed on to the guest once an NMI window exit says it can take
+    // one. External interrupts do not exit, and reach the guest directly
     //
     // HLT, MONITOR and MWAIT exit when an underlying hypervisor makes them
     // mandatory, as Hyper-V does. MONITOR is a hint and MWAIT may return at
@@ -877,6 +937,9 @@ ShvVmxHandleExit (
     {
     case EXIT_REASON_EXCEPTION_NMI:
         ShvVmxHandleNmi(VpState);
+        break;
+    case EXIT_REASON_PENDING_VIRT_NMI:
+        ShvVmxHandleNmiWindow(VpState);
         break;
     case EXIT_REASON_CPUID:
         ShvVmxHandleCpuid(VpState);

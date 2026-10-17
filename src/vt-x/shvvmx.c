@@ -683,5 +683,6 @@ const SHV_ARCH ShvVmxArch =
     ShvVmxHandleExit,
     ShvVmxFlushGuestMappings,
     ShvVmxTakeHeldNmi,
+    ShvVmxReflectNmi,
 };
 
