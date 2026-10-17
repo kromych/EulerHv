@@ -65,7 +65,7 @@ Underlying hypervisor: VMwareVMware (...); WAITPKG before/loaded: 1/1 (ok)
   PASS  SimpleVisor not detected before loading
   PASS  sc start simplevisor succeeded
   PASS  SimpleVisor detected while loaded
-  PASS  Guest runs in x2APIC mode while loaded
+  PASS  Flush IPIs reach every processor while loaded
   ...
 ```
 

@@ -40,6 +40,13 @@ Environment:
 #define SHV_CPUID_IPI_COUNTS           0x47470000
 
 //
+// The EBX bits of the detection call: whether this processor's local APIC is
+// in x2APIC mode, and whether SimpleVisor's flush IPIs reach this processor
+//
+#define SHV_CPUID_DETECT_X2APIC        0x00000001
+#define SHV_CPUID_DETECT_FLUSH_IPIS    0x00000002
+
+//
 // The command to inject an NMI into this processor, which the guest's NMI
 // handler takes. SimpleVisor drops the other NMIs, so only this command
 // delivers one

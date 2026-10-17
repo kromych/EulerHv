@@ -172,6 +172,13 @@ typedef struct _SHV_VP_DATA
             UINT8 HyperVGuestIdle;
 
             //
+            // Whether Hyper-V recommends that the guest flush the TLB of
+            // other processors with hypercalls, which then need SimpleVisor's
+            // flush
+            //
+            UINT8 HyperVRemoteTlbFlush;
+
+            //
             // Whether the guest can use UMONITOR, UMWAIT and TPAUSE. If not
             // WAITPKG is hidden
             //
@@ -191,12 +198,15 @@ typedef struct _SHV_VP_DATA
             volatile long NmiReflectPending;
 
             //
-            // Whether the guest's local APIC is in x2APIC mode, which the
-            // flush IPIs need, and its x2APIC ID. The magic detection leaf
-            // reports the mode, and the ID is published once the guest runs
+            // Whether the guest's local APIC is in x2APIC mode, the ICR value
+            // that sends this processor a flush IPI, or 0 if none can, and
+            // the MSR that this processor sends flush IPIs with, which is the
+            // x2APIC ICR in x2APIC mode. The magic detection leaf reports
+            // both, and the ICR value is published once the guest runs
             //
             UINT8 X2ApicEnabled;
-            UINT32 X2ApicId;
+            UINT32 FlushIpiIcrMsr;
+            UINT64 FlushIpiIcr;
 
             //
             // This processor's bit in the bitmap of virtualized processors

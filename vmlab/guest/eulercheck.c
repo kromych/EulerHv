@@ -108,6 +108,7 @@ ReportExitCounts (
     UINT32 reason;
     UINT64 total;
     int x2Apic;
+    int flushIpis;
     WORD group;
     DWORD index;
 
@@ -124,6 +125,7 @@ ReportExitCounts (
     ipiCounters = 0;
     processors = 0;
     x2Apic = 1;
+    flushIpis = 1;
     GetThreadGroupAffinity(GetCurrentThread(), &previous);
     for (group = 0; group < GetActiveProcessorGroupCount(); group++)
     {
@@ -145,10 +147,11 @@ ReportExitCounts (
             processors++;
 
             //
-            // The detection leaf reports x2APIC mode in EBX bit 0, which
-            // every virtualized processor must have for the flush IPIs
+            // The detection leaf reports x2APIC mode, and whether the flush
+            // IPIs reach this processor, which they must on every one
             //
-            x2Apic = x2Apic && ((cpuInfo[1] & 1) != 0);
+            x2Apic = x2Apic && ((cpuInfo[1] & SHV_CPUID_DETECT_X2APIC) != 0);
+            flushIpis = flushIpis && ((cpuInfo[1] & SHV_CPUID_DETECT_FLUSH_IPIS) != 0);
 
             for (reason = 0; reason < MAX_EXIT_COUNTERS; reason++)
             {
@@ -198,6 +201,7 @@ ReportExitCounts (
     }
     printf("exits.processors=%u\n", processors);
     printf("x2apic=%d\n", x2Apic);
+    printf("flush_ipis=%d\n", flushIpis);
     printf("exits.total=%llu\n", total);
     for (reason = 0; reason < counters; reason++)
     {

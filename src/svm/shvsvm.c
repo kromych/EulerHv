@@ -1035,15 +1035,16 @@ ShvSvmHandleCpuid (
     }
 
     //
-    // Magic CPUID sequence to detect SimpleVisor. EBX bit 0 reports whether
-    // this processor's local APIC is in x2APIC mode, which the flush IPIs
-    // need
+    // Magic CPUID sequence to detect SimpleVisor. EBX reports whether this
+    // processor's local APIC is in x2APIC mode, and whether the flush IPIs
+    // reach this processor
     //
     if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
         ((UINT32)VpState->VpRegs->Rcx == SHV_CPUID_DETECT))
     {
         VpState->VpRegs->Rax = SHV_CPUID_SIGNATURE;
-        VpState->VpRegs->Rbx = (VpState->VpData->X2ApicEnabled != FALSE);
+        VpState->VpRegs->Rbx = ((VpState->VpData->X2ApicEnabled != FALSE) ? SHV_CPUID_DETECT_X2APIC : 0) |
+                               ((VpState->VpData->FlushIpiIcr != 0) ? SHV_CPUID_DETECT_FLUSH_IPIS : 0);
         VpState->VpRegs->Rcx = 0;
         VpState->VpRegs->Rdx = 0;
         return;

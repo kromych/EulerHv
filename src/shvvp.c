@@ -42,10 +42,11 @@ static volatile UINT64* ShvVpSecondLevelRoots;
 // Each virtualized processor's flush IPI state, by processor number, a cache
 // line each.
 //
-// Icr sends the processor a flush IPI: its x2APIC ID as the ICR destination
-// with the NMI delivery mode, or 0 while it cannot take one, such as before
-// its guest runs. Senders count themselves in Senders while they use it, so
-// that a processor leaving the guest can wait for them.
+// Icr sends the processor a flush IPI: its APIC ID as the ICR destination
+// with the NMI delivery mode, as the ICR the senders write lays it out, or 0
+// while it cannot take one, such as before its guest runs. Senders count
+// themselves in Senders while they use it, so that a processor leaving the
+// guest can wait for them.
 //
 // A sender bumps Requested and waits for Completed to reach it. It sends the
 // NMI only if it is the one to set NmiInFlight, as otherwise an NMI on its
@@ -191,15 +192,13 @@ ShvVpPublishFlushTarget (
     //
     // Called by the guest once it runs, as a flush IPI arriving before would
     // be taken by the OS's NMI handler. The NMI gate needs VpData before the
-    // first flush IPI can arrive. Without x2APIC none can be sent at all
+    // first flush IPI can arrive. Without an ICR that reaches this processor
+    // none can be sent at all
     //
     target->VpData = VpData;
-    if (VpData->X2ApicEnabled != FALSE)
+    if (VpData->FlushIpiIcr != 0)
     {
-        _InterlockedExchange64(&target->Icr,
-                               ((INT64)VpData->X2ApicId << APIC_ICR_DESTINATION_SHIFT) |
-                               APIC_ICR_LEVEL_ASSERT |
-                               APIC_ICR_DELIVERY_NMI);
+        _InterlockedExchange64(&target->Icr, (INT64)VpData->FlushIpiIcr);
     }
 }
 
@@ -376,7 +375,8 @@ ShvVpFlushGuestMappings (
             sent = 0;
             if (_InterlockedExchange(&target->NmiInFlight, 1) == 0)
             {
-                if (ShvUtilAccessMsr(VpData, APIC_ICR, TRUE, &icr) != FALSE)
+                if ((VpData->FlushIpiIcrMsr != 0) &&
+                    (ShvUtilAccessMsr(VpData, VpData->FlushIpiIcrMsr, TRUE, &icr) != FALSE))
                 {
                     VpData->IpiCounts[ShvIpiFlushIpisSent]++;
                     sent = SHV_TRACE_FLUSH_IPI_SENT;
@@ -384,8 +384,10 @@ ShvVpFlushGuestMappings (
                 else
                 {
                     //
-                    // The local APIC left x2APIC mode, so no flush IPI can be
-                    // sent to that processor anymore, and nobody waits for one
+                    // This processor has no ICR to send it with, or the ICR
+                    // faulted, as when the local APIC left x2APIC mode, so no
+                    // flush IPI can be sent to that processor anymore, and
+                    // nobody waits for one
                     //
                     _InterlockedExchange64(&target->Icr, 0);
                     _InterlockedExchange(&target->NmiInFlight, 0);
@@ -487,6 +489,13 @@ ShvVpDetectUnderlyingHypervisor (
     VpData->HyperVGuestIdle = (cpuInfo[0] & HYPERV_FEATURE_GUEST_IDLE_MSR) != 0;
 
     //
+    // Check whether the guest flushes the TLB of other processors with
+    // hypercalls, as Hyper-V recommended at boot
+    //
+    __cpuid(cpuInfo, HYPERV_CPUID_ENLIGHTMENT_INFO);
+    VpData->HyperVRemoteTlbFlush = (cpuInfo[0] & HYPERV_ENLIGHTMENT_REMOTE_TLB_FLUSH) != 0;
+
+    //
     // Check whether Hyper-V can flush the guest's cached mappings on every
     // processor, and keep the physical address of that hypercall's input
     //
@@ -504,9 +513,34 @@ ShvVpDetectUnderlyingHypervisor (
     // switching address spaces and flushing the TLB. The VM-Exit handlers
     // forward the flush hypercalls and compensate for them with Hyper-V's
     // flush hypercall or SimpleVisor's own flush IPIs, and handle the switch
-    // hypercall by switching the guest's CR3, so neither keeps SimpleVisor
-    // from loading
+    // hypercall by switching the guest's CR3. ShvVpLaunch fails where
+    // neither flush reaches a processor
     //
+}
+
+static
+VOID
+ShvVpPrepareFlushIpis (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    //
+    // Find how a flush IPI reaches this processor: with the x2APIC ICR and
+    // its x2APIC ID in x2APIC mode. The ICR value is published only once the
+    // guest runs, so a flush IPI never reaches this processor while it still
+    // runs the OS's code. This still is the OS's code, with interrupts on, so
+    // read the MSRs directly rather than with the idle IDT, which would take
+    // the OS's interrupts. IA32_APIC_BASE always exists, and the x2APIC ID
+    // register does in x2APIC mode
+    //
+    VpData->X2ApicEnabled = (__readmsr(APIC_BASE) & APIC_BASE_X2APIC) != 0;
+    if (VpData->X2ApicEnabled != FALSE)
+    {
+        VpData->FlushIpiIcrMsr = APIC_ICR;
+        VpData->FlushIpiIcr = ((UINT64)(UINT32)__readmsr(APIC_ID) << APIC_ICR_DESTINATION_SHIFT) |
+                              APIC_ICR_LEVEL_ASSERT |
+                              APIC_ICR_DELIVERY_NMI;
+    }
 }
 
 INT32
@@ -519,6 +553,25 @@ ShvVpLaunch (
     // Being nested changes how CPUID and the identity map are handled
     //
     ShvVpDetectUnderlyingHypervisor(VpData);
+    ShvVpPrepareFlushIpis(VpData);
+
+    //
+    // Nested under Hyper-V, a guest that flushes other processors' TLBs with
+    // hypercalls needs SimpleVisor to flush the mappings those processors
+    // cached for the guest as well, with Hyper-V's flush hypercall or with
+    // SimpleVisor's flush IPIs. Without either, the guest would go on with
+    // stale translations, so do not load
+    //
+    if ((VpData->UnderlyingHypervisorIsHyperV != FALSE) &&
+        (VpData->HyperVRemoteTlbFlush != FALSE) &&
+        (VpData->HyperVGuestMappingFlush == FALSE) &&
+        (VpData->FlushIpiIcr == 0))
+    {
+        ShvOsDebugPrint("SimpleVisor: no flush reaches CPU %d, which is in xAPIC mode, "
+                        "and Hyper-V offers no guest mapping flush\n",
+                        VpData->ProcessorIndex);
+        return SHV_STATUS_NOT_AVAILABLE;
+    }
 
     //
     // Initialize all the MTRR-related MSRs by reading their value and build
@@ -546,23 +599,6 @@ ShvVpLaunch (
     // Initialize the guest and host state.
     //
     ShvArch->Setup(VpData);
-
-    //
-    // Remember whether the guest's local APIC is in x2APIC mode, which the
-    // flush IPIs need, and this processor's x2APIC ID, which they target.
-    // Windows enables x2APIC at boot when the processor offers it, and the
-    // lab sets the x2apicpolicy BCD option to make it do so. The ID is
-    // published only once the guest runs, so a flush IPI never reaches this
-    // processor while it still runs the OS's code. This still is the OS's
-    // code, with interrupts on, so read the MSRs directly rather than with
-    // the idle IDT, which would take the OS's interrupts. IA32_APIC_BASE
-    // always exists, and the x2APIC ID register does in x2APIC mode
-    //
-    VpData->X2ApicEnabled = (__readmsr(APIC_BASE) & APIC_BASE_X2APIC) != 0;
-    if (VpData->X2ApicEnabled != FALSE)
-    {
-        VpData->X2ApicId = (UINT32)__readmsr(APIC_ID);
-    }
 
     //
     // Launch the guest. This will cause the processor to jump to
