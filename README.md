@@ -82,8 +82,9 @@ processor when it forwards the guest's TLB flush hypercalls and Hyper-V
 offers no flush hypercall of its own. The flush IPIs are NMIs, which every
 processor takes in root mode whether or not the guest has interrupts
 enabled, and the sender waits for each processor to flush before the
-hypercall returns. They go through the x2APIC ICR, so they need x2APIC
-mode. Where they cannot reach a processor, Hyper-V offers no flush
+hypercall returns. They go through the x2APIC ICR in x2APIC mode, and in
+xAPIC mode through Hyper-V's synthetic ICR, where Hyper-V offers it, as
+OpenVMM does. Where neither reaches a processor, Hyper-V offers no flush
 hypercall, and the guest flushes other processors' TLBs with hypercalls,
 Euler doesn't load, as the guest would go on with stale translations. The
 flush IPIs never reach the guest, and the guest takes its own

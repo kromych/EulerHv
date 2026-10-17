@@ -366,6 +366,12 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 #define HYPERV_MSR_GUEST_IDLE                   0x400000f0
 
 //
+// The CPUID 40000003h EAX privilege to use Hyper-V's APIC access MSRs, among
+// them its synthetic ICR
+//
+#define HYPERV_FEATURE_APIC_ACCESS_MSRS         0x00000010
+
+//
 // The CPUID 40000004h EAX bits recommending hypercalls to switch address
 // spaces and to flush the TLB of this processor and of others
 //

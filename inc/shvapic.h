@@ -26,7 +26,8 @@ Environment:
 //
 // IA32_APIC_BASE and its x2APIC enable bit. Windows enables x2APIC at boot
 // when the processor offers it, and the lab sets the x2apicpolicy BCD option
-// to make it do so, as SimpleVisor's flush IPIs need the x2APIC MSRs
+// to make it do so. SimpleVisor's flush IPIs need the x2APIC MSRs, or else
+// Hyper-V's synthetic ICR
 //
 #define APIC_BASE                   0x1B
 #define APIC_BASE_X2APIC            (1ULL << 10)
@@ -47,6 +48,14 @@ Environment:
 #define APIC_ICR_DESTINATION_SHIFT  32
 #define APIC_ICR_DELIVERY_NMI       (4ULL << 8)
 #define APIC_ICR_LEVEL_ASSERT       (1ULL << 14)
+
+//
+// Hyper-V's synthetic ICR, one of its APIC access MSRs, which works in xAPIC
+// mode as well. It takes the two halves of the xAPIC ICR, so the destination
+// xAPIC ID occupies bits 63:56, and the other bits are as above
+//
+#define HV_X64_MSR_ICR              0x40000071
+#define HV_ICR_DESTINATION_SHIFT    56
 
 //
 // SimpleVisor flushes the guest's mappings on another processor with an NMI

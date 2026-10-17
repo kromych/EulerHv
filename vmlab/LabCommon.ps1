@@ -488,7 +488,7 @@ function Show-LabResult {
         Write-Warning "The guest has neither VMX nor SVM, so SimpleVisor cannot load in it. $NoVmxHint"
     }
     if ((& $get 'loaded.flush_ipis') -ne '1') {
-        Write-Warning "The flush IPIs cannot reach every processor, which needs x2APIC mode. FirstLogon.ps1 sets the x2apicpolicy BCD option, which takes effect when the processor exposes x2APIC."
+        Write-Warning "The flush IPIs cannot reach every processor, which needs x2APIC mode, or Hyper-V's synthetic ICR. FirstLogon.ps1 sets the x2apicpolicy BCD option, which takes effect when the processor exposes x2APIC."
     }
     $failed = 0
     foreach ($check in $checks) {

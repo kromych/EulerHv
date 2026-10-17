@@ -483,10 +483,12 @@ ShvVpDetectUnderlyingHypervisor (
     maxLeaf = (UINT32)cpuInfo[0];
 
     //
-    // Check whether Hyper-V lets SimpleVisor idle in the guest idle MSR
+    // Check whether Hyper-V lets SimpleVisor idle in the guest idle MSR, and
+    // whether it offers its APIC access MSRs
     //
     __cpuid(cpuInfo, HYPERV_CPUID_FEATURES);
     VpData->HyperVGuestIdle = (cpuInfo[0] & HYPERV_FEATURE_GUEST_IDLE_MSR) != 0;
+    VpData->HyperVApicAccessMsrs = (cpuInfo[0] & HYPERV_FEATURE_APIC_ACCESS_MSRS) != 0;
 
     //
     // Check whether the guest flushes the TLB of other processors with
@@ -524,20 +526,33 @@ ShvVpPrepareFlushIpis (
     _In_ PSHV_VP_DATA VpData
     )
 {
+    INT32 cpuInfo[4];
+
     //
     // Find how a flush IPI reaches this processor: with the x2APIC ICR and
-    // its x2APIC ID in x2APIC mode. The ICR value is published only once the
-    // guest runs, so a flush IPI never reaches this processor while it still
-    // runs the OS's code. This still is the OS's code, with interrupts on, so
-    // read the MSRs directly rather than with the idle IDT, which would take
-    // the OS's interrupts. IA32_APIC_BASE always exists, and the x2APIC ID
-    // register does in x2APIC mode
+    // its x2APIC ID in x2APIC mode, or with Hyper-V's synthetic ICR and its
+    // xAPIC ID in xAPIC mode, where Hyper-V offers that ICR, as OpenVMM does
+    // for a guest that it leaves in xAPIC mode. Windows does not change the
+    // xAPIC ID that firmware set, which CPUID reports. The ICR value is
+    // published only once the guest runs, so a flush IPI never reaches this
+    // processor while it still runs the OS's code. This still is the OS's
+    // code, with interrupts on, so read the MSRs directly rather than with
+    // the idle IDT, which would take the OS's interrupts. IA32_APIC_BASE
+    // always exists, and the x2APIC ID register does in x2APIC mode
     //
     VpData->X2ApicEnabled = (__readmsr(APIC_BASE) & APIC_BASE_X2APIC) != 0;
     if (VpData->X2ApicEnabled != FALSE)
     {
         VpData->FlushIpiIcrMsr = APIC_ICR;
         VpData->FlushIpiIcr = ((UINT64)(UINT32)__readmsr(APIC_ID) << APIC_ICR_DESTINATION_SHIFT) |
+                              APIC_ICR_LEVEL_ASSERT |
+                              APIC_ICR_DELIVERY_NMI;
+    }
+    else if (VpData->HyperVApicAccessMsrs != FALSE)
+    {
+        __cpuid(cpuInfo, 1);
+        VpData->FlushIpiIcrMsr = HV_X64_MSR_ICR;
+        VpData->FlushIpiIcr = ((UINT64)((UINT32)cpuInfo[1] >> 24) << HV_ICR_DESTINATION_SHIFT) |
                               APIC_ICR_LEVEL_ASSERT |
                               APIC_ICR_DELIVERY_NMI;
     }
@@ -567,8 +582,8 @@ ShvVpLaunch (
         (VpData->HyperVGuestMappingFlush == FALSE) &&
         (VpData->FlushIpiIcr == 0))
     {
-        ShvOsDebugPrint("SimpleVisor: no flush reaches CPU %d, which is in xAPIC mode, "
-                        "and Hyper-V offers no guest mapping flush\n",
+        ShvOsDebugPrint("SimpleVisor: no flush reaches CPU %d, which is in xAPIC mode without "
+                        "Hyper-V's synthetic ICR, and Hyper-V offers no guest mapping flush\n",
                         VpData->ProcessorIndex);
         return SHV_STATUS_NOT_AVAILABLE;
     }
