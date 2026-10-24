@@ -1,125 +1,152 @@
 # Euler
 
-Euler is a hypervisor for 64-bit Windows and UEFI. It started as a fork of
-[SimpleVisor](README.SimpleVisor.md), which Alex Ionescu wrote in 2016 to show
+`Euler` is a hypervisor for 64-bit Windows and UEFI. It started as a fork of
+[SimpleVisor](README.SimpleVisor.md) which Alex Ionescu wrote in 2016 to show
 how little code it takes to virtualize a running system with VT-x. The history
-of this repository goes back to his first commit. It also keeps the work of everyone
-who contributed to SimpleVisor (Saar Amar, Joe Sylve, Satoshi Tanda, Petr Benes
-and Zach Riggle). The files that came from SimpleVisor
-keep their copyright notices, and its README is kept as it was.
+goes back to his first commit and keeps the work of everyone who contributed to
+SimpleVisor (Saar Amar, Joe Sylve, Satoshi Tanda, Petr Benes and Zach Riggle).
+Files from SimpleVisor keep their copyright notices and its README is kept as
+it was.
 
-SimpleVisor aimed to be as small as possible, and I wanted a bit more so Euler
-is bigger. Euler also runs on AMD processors with SVM, and nested under Hyper-V,
-OpenVMM and VMware. Under Hyper-V it forwards the guest's hypercalls, flushes
-the guest's mappings when the guest flushes the TLB of other processors, and
-idles when the guest halts. It maps all of physical memory with the memory types
-the MTRRs give it.
+SimpleVisor aimed to be as small as possible. I wanted a bit more so `Euler` is
+bigger. It also runs on AMD with SVM and nested under Hyper-V, OpenVMM and
+VMware. Under Hyper-V it forwards the guest's hypercalls, flushes the guest's
+mappings when the guest flushes other processors' TLBs and idles when the
+guest halts. It maps all of physical memory with the memory types from the
+MTRRs.
 
-The first commits maybe useful for SimpleVisor as they improve few things without
-adding complexity.
+The first commits may be useful for SimpleVisor as they improve a few things
+without adding complexity.
 
-Euler doubles the amount of Simple Visor code. There are about 6,800 lines of C and 500 of
-assembly vs against SimpleVisor's 3,400 and 230. The newly added test harness (`vmlab`)
-has about 3,000 lines of scripts that build Hyper-V, OpenVMM and VMware test VMs and
-run Euler inside each.
+`Euler` has more than twice SimpleVisor's code: about `8,500` lines of C and `650` of
+assembly against `3,400` and `230`. The test harness, `vmlab`, adds about `3,300`
+lines of scripts that build Hyper-V, OpenVMM and VMware VMs and run `Euler` in
+each.
 
 ## Layout
 
-* `src` has the backend-independent code, with the VT-x and SVM backends in
-  `src\vt-x` and `src\svm`, their assembly in `masm` under each, and the OS
-  layers in `src\nt` and `src\uefi`.
-* `inc` has the shared headers, with those of each backend in `inc\vt-x` and
+* `src` has the backend-independent code. The VT-x and SVM backends are in
+  `src\vt-x` and `src\svm` with their assembly in `masm` under each. The OS
+  layers are in `src\nt` and `src\uefi`.
+* `inc` has the shared headers and each backend's in `inc\vt-x` and
   `inc\svm`.
-* `vs` has the Visual Studio solution and project, `euler.slnx` and
-  `euler.vcxproj`. Builds go to `x64\<configuration>`, as `euler.sys` for
-  Windows and `euler.efi` for UEFI.
-* `vmlab` has the test labs, see [vmlab\README.md](vmlab/README.md).
+* `vs` has the solution and project, `euler.slnx` and `euler.vcxproj`. Builds
+  go to `x64\<configuration>`: `euler.sys` for Windows, `euler.efi` for UEFI.
+* `vmlab` has the test labs described in [vmlab\README.md](vmlab/README.md).
 
 ## Building
 
-Euler needs:
+`Euler` needs:
 
-* Visual Studio 2026 with the Desktop development with C++ workload, and the
-  MSVC x64/x86 Spectre-mitigated libraries, which driver builds link with.
-* The Windows Driver Kit with its Visual Studio extension, and the Windows SDK
-  of the same version, 10.0.26100 or later. The build uses the newest one
-  installed.
+* Visual Studio 2026 with the Desktop development with C++ workload and the
+  Spectre-mitigated MSVC x64/x86 libraries which driver builds link with.
+* The WDK with its Visual Studio extension and the Windows SDK of the same
+  version, `10.0.26100` or later. The build uses the newest one installed.
 
 In Visual Studio, open `vs\euler.slnx`, pick the `NT` configuration and build.
-
-From a Developer Command Prompt or Developer PowerShell for Visual Studio 2026,
-in the root of the repo:
+Or from a Developer Command Prompt or Developer PowerShell for Visual Studio
+2026 in the root of the repo:
 
 ```
 msbuild vs\euler.slnx /p:Configuration=NT
 ```
 
-`NT` is also the default. The build writes `euler.sys`, `euler.pdb` and
-`euler.cer` to `x64\NT`. It test-signs `euler.sys` with the WDK's test
-certificate, `WDKTestCert <user>`, which it creates on first use, and
-`euler.cer` is that certificate. Pass `/p:SignMode=Off` to leave the driver
-unsigned.
+`NT` is the default. The build writes `euler.sys`, `euler.pdb` and `euler.cer`
+to `x64\NT`. `euler.sys` is test-signed with the WDK's test certificate
+(`WDKTestCert <user>`, created on first use) and `euler.cer` is that
+certificate. Pass `/p:SignMode=Off` to skip signing.
 
-Visual Studio 2022 builds Euler as well, with a WDK it has build tasks for. The
-10.0.28000 WDK only has them for Visual Studio 2026, so if it is installed, pass
-`/p:WindowsTargetPlatformVersion=10.0.26100.0` to use the 10.0.26100 one.
+Visual Studio 2022 works too with a WDK that has build tasks for it. The
+`10.0.28000` WDK only has them for Visual Studio 2026 so pass
+`/p:WindowsTargetPlatformVersion=10.0.26100.0` if it is installed.
 
-The labs build with the Enterprise WDK instead, which needs no Visual Studio,
-see [vmlab\README.md](vmlab/README.md).
+The labs build with the Enterprise WDK which needs no Visual Studio.
 
 ## Running
 
-Loading the driver works as for SimpleVisor, see its
-[README](README.SimpleVisor.md#installation-on-windows).
-When unloading, Euler prints to the kernel debugger how many VM-exits it
-handled per exit reason, how many TLB flush hypercalls it forwarded, and how
-many IPIs it saw. `vmlab\guest\eulercheck.c` reads the same counters while
-Euler runs.
+Load the driver as described in SimpleVisor's
+[README](README.SimpleVisor.md#installation-on-windows). On unload, `Euler`
+prints to the kernel debugger how many VM-exits it handled per exit reason, how
+many TLB flush hypercalls it forwarded and how many IPIs it saw: those the
+guest sent through the x2APIC ICR and its own flush IPIs.
 
-Euler counts the IPIs the guest sends through the local APIC's ICR, and its
-own flush IPIs, which it sends to flush the guest's mappings on every
-processor when it forwards the guest's TLB flush hypercalls and Hyper-V
-offers no flush hypercall of its own. The flush IPIs are NMIs, which every
-processor takes in root mode whether or not the guest has interrupts
-enabled, and the sender waits for each processor to flush before the
-hypercall returns. They go through the x2APIC ICR in x2APIC mode, and in
-xAPIC mode through Hyper-V's synthetic ICR, where Hyper-V offers it, as
-OpenVMM does. Where neither reaches a processor, Hyper-V offers no flush
-hypercall, and the guest flushes other processors' TLBs with hypercalls,
-Euler doesn't load, as the guest would go on with stale translations. The
-flush IPIs never reach the guest, and the guest takes its own
-interrupts directly. Other NMIs are the guest's. Windows sends them to the
-other processors when it bugchecks, and when it freezes them for the kernel
-debugger and one of them doesn't take the freeze IPI in time, which even a
-`DbgPrint` does with a debugger enabled. On VT-x, Euler passes them on to the
-guest once it can take an NMI, and `eulercheck nmi` has Euler inject one on
-demand. On SVM, which has no NMI window exit to tell when the guest can take
-one, any other NMI halts Euler for the debugger, so a crash or a debugger
-freeze can leave the system halted rather than write a crash dump. The address space
-switch hypercalls, which Windows uses with KVA shadow, are emulated by
-switching the guest's CR3.
+The guest flushes other processors' TLBs with hypercalls. `Euler` forwards them
+then flushes the guest's mappings on every processor with Hyper-V's flush
+hypercall if there is one and with flush IPIs otherwise. The flush IPIs are
+NMIs which a processor takes in root mode even when the guest has interrupts
+disabled. The sender waits for every processor to flush before the hypercall
+returns. The IPIs go through the x2APIC ICR in x2APIC mode and through
+Hyper-V's synthetic ICR in xAPIC mode where Hyper-V offers it as OpenVMM
+does. If neither reaches a processor and Hyper-V has no flush hypercall, `Euler`
+doesn't load as the guest would keep stale translations.
 
-Typical counts, from the Hyper-V lab: Windows Server 2025 on 4 processors,
-nested under Hyper-V on Windows 11 24H2 on an Intel Core Ultra 9 185H, with
-Euler loaded for about 20 seconds while a web browser runs. That's 81,121
-VM-exits, about 1,000 per processor per second:
+The flush IPIs never reach the guest and the guest takes its own interrupts
+directly. Other NMIs are the guest's. Windows sends them to the other
+processors when it bugchecks and when it freezes them for the kernel debugger
+and one misses the freeze IPI which even a `DbgPrint` can cause with a
+debugger enabled. On VT-x, `Euler` passes them on once the guest can take an
+NMI. SVM has no NMI window exit so there any other NMI halts `Euler` for the
+debugger and a crash or a debugger freeze can leave the system halted without
+a crash dump.
 
-| VM-exit (VT-x exit reason) | Count | What Euler does |
-|---|---:|---|
-| CPUID (10) | 5,639 | Runs CPUID itself, and adjusts the result, such as with the Hypervisor Present-bit |
-| HLT (12) | 5,073 | Idles in Hyper-V's guest idle MSR. Hyper-V makes HLT exits mandatory |
-| VMCALL (18) | 15,908 | Passes the hypercall through to Hyper-V. 6,784 of them flushed the TLB (1,414 HvCallFlushVirtualAddressSpace and 5,370 HvCallFlushVirtualAddressList), after which Euler also flushed the guest's mappings on every processor |
-| RDMSR (31) | 2,755 | Passes the read of a synthetic MSR through to Hyper-V |
-| WRMSR (32) | 51,742 | Passes the write of a synthetic MSR through to Hyper-V |
-| VM-entry failure (33) | 4 | Once per processor, as Hyper-V refuses the HLT activity state. HLT idles in Euler from then on |
+`Euler` emulates the address space switch hypercalls which Windows uses with
+KVA shadow by switching the guest's `CR3`.
+
+Typical counts from the Hyper-V and OpenVMM labs with Windows Server 2025 on
+4 processors and `Euler` loaded for about 20 seconds while a web browser runs.
+The host is Windows 11 24H2 on an Intel Core Ultra 9 185H. That's `132,440`
+VM-exits under Hyper-V and `149,919` under OpenVMM, about `1,650` and `1,900` per
+processor per second:
+
+| VM-exit (VT-x exit reason) | Hyper-V | OpenVMM | What `Euler` does |
+|---|---:|---:|---|
+| Exception or NMI (`0`) | `0` | `37,141` | Flushes the guest's mappings on a flush IPI that arrives while the guest runs |
+| CPUID (`10`) | `5,982` | `8,016` | Runs CPUID and adjusts the result, e.g. sets the Hypervisor Present-bit |
+| HLT (`12`) | `5,914` | `15,842` | Idles in Hyper-V's guest idle MSR. Hyper-V makes HLT exits mandatory |
+| VMCALL (`18`) | `16,414` | `17,478` | Forwards the hypercall to Hyper-V and flushes the guest's mappings on every processor after a TLB flush |
+| RDMSR (`31`) | `3,371` | `15,369` | Forwards the read of a synthetic MSR to Hyper-V |
+| WRMSR (`32`) | `100,755` | `56,069` | Forwards the write of a synthetic MSR or the x2APIC ICR to Hyper-V |
+| VM-entry failure (`33`) | `4` | `4` | Once per processor as Hyper-V refuses the HLT activity state. HLT idles in `Euler` from then on |
+
+Of the hypercalls, `7,862` flushed the TLB under Hyper-V (`7,821`
+`HvCallFlushVirtualAddressSpace` and `41` `HvCallFlushVirtualAddressList`) and `13,495`
+under OpenVMM (`193` and `13,302`). Hyper-V has a flush hypercall so `Euler` used
+`HvCallFlushGuestPhysicalAddressSpace` and sent no flush IPIs. Its guest ran in
+x2APIC mode and wrote the ICR `47,116` times and the self IPI register `6,261`
+times. OpenVMM has no flush hypercall so `Euler` sent `53,705` flush IPIs through
+the synthetic ICR counting the sending processor's own flushes. The processors
+received `40,210` of them. Its guest ran in xAPIC mode whose ICR `Euler` doesn't
+count.
+
+## Testing and debugging
+
+* `vmlab` builds `Euler`, loads it in a Hyper-V, OpenVMM or VMware VM, checks the
+  guest and unloads it with a PASS or FAIL line per check. See
+  [vmlab\README.md](vmlab/README.md).
+* The guest probe, `vmlab\guest\eulercheck.c`, prints the CPUID state `Euler`
+  affects. It reads the counters `Euler` prints on unload through a magic CPUID
+  leaf. `eulercheck nmi` has `Euler` inject an NMI into the guest.
+* On an exit it can't handle, `Euler` prints the exit and the guest state, saves
+  them in the `Fatal*` fields of each processor's `SHV_VP_DATA` and breaks in.
+* `euler!ShvExitTrace` holds the last `4,096` exits on all processors plus
+  `Euler`'s own flush requests and NMIs. `vmlab\openvmm\Read-OvmmExitTrace.ps1`
+  reads it and the fatal exits from the memory of a hung OpenVMM guest.
+* `vmlab\Connect-LabDebugger.ps1` attaches `kd` or WinDbg to a lab VM. With
+  `-AttachDebugger`, the lab tests keep `kd` attached and run
+  `vmlab\kd-halt.txt` when the guest breaks in. It shows the bugcheck and each
+  processor's guest stack at its fatal exit.
 
 ## UEFI
 
-The UEFI build isn't maintained, and the labs neither build nor test it. It
-keeps SimpleVisor's limits: an OS loaded after it eventually crashes, as the
-image runs in boot services memory, which the OS takes back after
-ExitBootServices, and the processors other than the first call boot services,
-which the PI specification doesn't allow. Besides, `src\uefi\simplevisor.inf`
-builds an application, which EDK2 unloads as soon as its entry point returns,
-and the UEFI configuration needs VisualUefi's EDK2, passed in `EDK_PATH`, as
-with `msbuild vs\euler.slnx /p:Configuration=UEFI /p:EDK_PATH=<VisualUefi>\edk2`.
+The UEFI build isn't maintained and the labs neither build nor test it. It
+keeps SimpleVisor's limits. The image runs in boot services memory which the
+OS takes back after `ExitBootServices` so an OS loaded after it eventually
+crashes. The processors other than the first call boot services which the PI
+specification doesn't allow. And `src\uefi\simplevisor.inf` builds an
+application which EDK2 unloads as soon as its entry point returns.
+
+The UEFI configuration needs VisualUefi's EDK2 in `EDK_PATH`:
+
+```
+msbuild vs\euler.slnx /p:Configuration=UEFI /p:EDK_PATH=<VisualUefi>\edk2
+```
