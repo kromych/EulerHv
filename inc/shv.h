@@ -111,10 +111,9 @@ typedef struct _SHV_ARCH
     // Pass an NMI that is not a flush IPI on to the guest, whose own NMI
     // handler takes it as without SimpleVisor, such as when Windows freezes
     // the processors for the debugger. Called for an NMI exit, or for an NMI
-    // in root mode. Returns FALSE if the backend cannot, which then halts for
-    // the debugger
+    // in root mode
     //
-    UINT8 (*ReflectNmi) (_In_ PSHV_VP_DATA VpData);
+    VOID (*ReflectNmi) (_In_ PSHV_VP_DATA VpData);
 } SHV_ARCH, *PSHV_ARCH;
 
 extern const SHV_ARCH ShvVmxArch;

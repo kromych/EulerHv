@@ -281,7 +281,7 @@ ShvVpHandleRootNmi (
     // Called by the NMI gate of the idle IDT. Root mode runs on the stack in
     // the processor's VP data, which tells the processor the NMI arrived on.
     // An NMI that is not a flush IPI is the guest's, which the backend passes
-    // on to it if it can. An NMI elsewhere is unexpected
+    // on to it. An NMI elsewhere is unexpected
     //
     if (ShvVpFlushTargets == NULL)
     {
@@ -294,8 +294,11 @@ ShvVpHandleRootNmi (
         if ((vpData != NULL) &&
             ((StackPointer - (UINT64)vpData->ShvStackLimit) < KERNEL_STACK_SIZE))
         {
-            return (ShvVpTakeFlushIpi(vpData) != FALSE) ||
-                   (ShvArch->ReflectNmi(vpData) != FALSE);
+            if (ShvVpTakeFlushIpi(vpData) == FALSE)
+            {
+                ShvArch->ReflectNmi(vpData);
+            }
+            return TRUE;
         }
     }
     return FALSE;

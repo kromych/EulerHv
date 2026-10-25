@@ -336,7 +336,7 @@ ShvVmxReinjectEvent (
     }
 }
 
-UINT8
+VOID
 ShvVmxReflectNmi (
     _In_ PSHV_VP_DATA VpData
     )
@@ -353,7 +353,6 @@ ShvVmxReflectNmi (
     __vmx_vmwrite(CPU_BASED_VM_EXEC_CONTROL,
                   ShvVmxRead(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_VIRTUAL_NMI_PENDING);
     VpData->IpiCounts[ShvIpiNmisReflected]++;
-    return TRUE;
 }
 
 VOID

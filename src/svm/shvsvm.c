@@ -34,6 +34,14 @@ typedef struct _SHV_SVM_HOST_FRAME
 
 C_ASSERT(sizeof(CONTEXT) == 0x4D0);
 
+//
+// SvmNmiState: the guest takes NMIs, runs the NMI handler SimpleVisor
+// injected one into, or runs that handler's intercepted IRET
+//
+#define SHV_SVM_NMI_UNBLOCKED       0
+#define SHV_SVM_NMI_IN_HANDLER      1
+#define SHV_SVM_NMI_IRET_RUNNING    2
+
 VOID
 ShvSvmVmrun (
     VOID
@@ -917,6 +925,21 @@ ShvSvmInjectInvalidOpcode (
 }
 
 VOID
+ShvSvmInjectDebugException (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    //
+    // Inject #DB. A single step raises it as a trap, past the instruction,
+    // so RIP stays where it is
+    //
+    VpState->VpData->Vmcb.EventInj = SVM_EVENTINJ_VALID |
+                                     SVM_EVENTINJ_TYPE_EXCEPTION |
+                                     INTR_INFO_VECTOR_DB;
+    VpState->SkipRipAdvance = TRUE;
+}
+
+VOID
 ShvSvmInjectNmi (
     _In_ PSHV_VP_STATE VpState
     )
@@ -927,7 +950,7 @@ ShvSvmInjectNmi (
     // as it does for the NMIs passed on to the guest. An NMI cannot be
     // injected into an NMI handler, so drop the injection then, as on VT-x
     //
-    if (VpState->VpData->SvmNmiBlocked != FALSE)
+    if (VpState->VpData->SvmNmiState != SHV_SVM_NMI_UNBLOCKED)
     {
         return;
     }
@@ -974,7 +997,7 @@ ShvSvmTakeHeldNmi (
     __lidt(&hostIdtr.Limit);
 }
 
-UINT8
+VOID
 ShvSvmReflectNmi (
     _In_ PSHV_VP_DATA VpData
     )
@@ -988,7 +1011,6 @@ ShvSvmReflectNmi (
     //
     _InterlockedExchange(&VpData->NmiReflectPending, 1);
     VpData->IpiCounts[ShvIpiNmisReflected]++;
-    return TRUE;
 }
 
 static
@@ -1060,9 +1082,9 @@ ShvSvmHandleIret (
     // here
     //
     VpState->SkipRipAdvance = TRUE;
-    if ((vpData->SvmNmiBlocked != FALSE) && (vpData->SvmNmiIretSeen == FALSE))
+    if (vpData->SvmNmiState == SHV_SVM_NMI_IN_HANDLER)
     {
-        vpData->SvmNmiIretSeen = TRUE;
+        vpData->SvmNmiState = SHV_SVM_NMI_IRET_RUNNING;
         vpData->SvmNmiIretRip = vpData->Vmcb.Rip;
     }
 }
@@ -1083,17 +1105,15 @@ ShvSvmHandleDebugException (
     // #DB. A single step is a trap, past the instruction, so RIP stays where
     // it is
     //
-    VpState->SkipRipAdvance = TRUE;
     if ((vpData->SvmNmiStepGuestTf == FALSE) &&
         ((vmcb->Dr6 & ~vpData->SvmNmiStepDr6) == DR6_BS))
     {
         vmcb->Dr6 = vpData->SvmNmiStepDr6;
         vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_DRX;
+        VpState->SkipRipAdvance = TRUE;
         return;
     }
-    vmcb->EventInj = SVM_EVENTINJ_VALID |
-                     SVM_EVENTINJ_TYPE_EXCEPTION |
-                     INTR_INFO_VECTOR_DB;
+    ShvSvmInjectDebugException(VpState);
 }
 
 static
@@ -1108,20 +1128,18 @@ ShvSvmEndNmiStep (
     //
     // Any exit ends the single step to an NMI window, whether or not the
     // step completed, as ShvSvmDeliverNmi looks at what holds the NMI off
-    // again before the next VMRUN. Clear the TF it set, unless the step ran
-    // the IRET of the guest's NMI handler, which loaded RFLAGS from the
-    // guest's stack
+    // again before the next VMRUN, and turns the #DB intercept off unless
+    // it steps again. Clear the TF it set, unless the step ran the IRET of
+    // the guest's NMI handler, which loaded RFLAGS from the guest's stack
     //
-    if (vpData->SvmNmiStepping == FALSE)
+    if ((vmcb->InterceptException & SVM_INTERCEPT_EXCEPTION_DB) == 0)
     {
         return;
     }
 
-    vpData->SvmNmiStepping = FALSE;
-    vmcb->InterceptException &= ~SVM_INTERCEPT_EXCEPTION_DB;
-    vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_I;
     if ((vpData->SvmNmiStepGuestTf == FALSE) &&
-        ((vpData->SvmNmiIretSeen == FALSE) || (vmcb->Rip == vpData->SvmNmiStepRip)))
+        ((vpData->SvmNmiState != SHV_SVM_NMI_IRET_RUNNING) ||
+         (vmcb->Rip == vpData->SvmNmiIretRip)))
     {
         vmcb->Rflags &= ~EFLAGS_TRAP_FLAG;
     }
@@ -1136,9 +1154,10 @@ ShvSvmDeliverNmi (
 {
     PSHV_VP_DATA vpData = VpState->VpData;
     PSVM_VMCB vmcb = &vpData->Vmcb;
-    UINT32 intercepts;
+    UINT32 interceptMisc1;
+    UINT32 interceptException;
+    UINT8 pending;
     UINT8 eventPending;
-    UINT8 step;
 
     //
     // SVM has no NMI window exit, and EVENTINJ delivers an NMI even inside
@@ -1153,19 +1172,20 @@ ShvSvmDeliverNmi (
     // NMI once the guest can take it. It is not used, as whether nested
     // Hyper-V and OpenVMM expose it is unknown, and this works without it
     //
-    if ((vpData->SvmNmiIretSeen != FALSE) && (vmcb->Rip != vpData->SvmNmiIretRip))
+    if ((vpData->SvmNmiState == SHV_SVM_NMI_IRET_RUNNING) &&
+        (vmcb->Rip != vpData->SvmNmiIretRip))
     {
-        vpData->SvmNmiIretSeen = FALSE;
-        vpData->SvmNmiBlocked = FALSE;
+        vpData->SvmNmiState = SHV_SVM_NMI_UNBLOCKED;
     }
 
     //
     // Inject the pending NMI once the guest can take one and no other event
     // is to be delivered
     //
+    pending = (vpData->NmiReflectPending != 0);
     eventPending = ((vmcb->EventInj & SVM_EVENTINJ_VALID) != 0);
-    if ((vpData->NmiReflectPending != 0) &&
-        (vpData->SvmNmiBlocked == FALSE) &&
+    if ((pending != FALSE) &&
+        (vpData->SvmNmiState == SHV_SVM_NMI_UNBLOCKED) &&
         ((vmcb->InterruptShadow & SVM_INTERRUPT_SHADOW) == 0) &&
         (eventPending == FALSE))
     {
@@ -1173,8 +1193,8 @@ ShvSvmDeliverNmi (
         vmcb->EventInj = SVM_EVENTINJ_VALID |
                          SVM_EVENTINJ_TYPE_NMI |
                          INTR_INFO_VECTOR_NMI;
-        vpData->SvmNmiBlocked = TRUE;
-        eventPending = TRUE;
+        vpData->SvmNmiState = SHV_SVM_NMI_IN_HANDLER;
+        pending = FALSE;
     }
 
     //
@@ -1185,45 +1205,28 @@ ShvSvmDeliverNmi (
     // the IRET of that event's handler instead, as a single step would leave
     // TF set in the frame the event pushes
     //
-    intercepts = vmcb->InterceptMisc1 & ~SVM_INTERCEPT_IRET;
-    step = FALSE;
-    if (vpData->SvmNmiBlocked != FALSE)
+    interceptMisc1 = vmcb->InterceptMisc1 & ~SVM_INTERCEPT_IRET;
+    interceptException = vmcb->InterceptException & ~SVM_INTERCEPT_EXCEPTION_DB;
+    if ((vpData->SvmNmiState == SHV_SVM_NMI_IN_HANDLER) ||
+        ((pending != FALSE) &&
+         (vpData->SvmNmiState == SHV_SVM_NMI_UNBLOCKED) &&
+         (eventPending != FALSE)))
     {
-        if (vpData->SvmNmiIretSeen == FALSE)
-        {
-            intercepts |= SVM_INTERCEPT_IRET;
-        }
-        else if ((vpData->NmiReflectPending != 0) && (eventPending == FALSE))
-        {
-            step = TRUE;
-        }
+        interceptMisc1 |= SVM_INTERCEPT_IRET;
     }
-    else if (vpData->NmiReflectPending != 0)
+    else if ((pending != FALSE) && (eventPending == FALSE))
     {
-        if (eventPending != FALSE)
-        {
-            intercepts |= SVM_INTERCEPT_IRET;
-        }
-        else
-        {
-            step = TRUE;
-        }
-    }
-
-    if (intercepts != vmcb->InterceptMisc1)
-    {
-        vmcb->InterceptMisc1 = intercepts;
-        vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_I;
-    }
-
-    if (step != FALSE)
-    {
-        vpData->SvmNmiStepping = TRUE;
         vpData->SvmNmiStepGuestTf = ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0);
-        vpData->SvmNmiStepRip = vmcb->Rip;
         vpData->SvmNmiStepDr6 = vmcb->Dr6;
         vmcb->Rflags |= EFLAGS_TRAP_FLAG;
-        vmcb->InterceptException |= SVM_INTERCEPT_EXCEPTION_DB;
+        interceptException |= SVM_INTERCEPT_EXCEPTION_DB;
+    }
+
+    if ((interceptMisc1 != vmcb->InterceptMisc1) ||
+        (interceptException != vmcb->InterceptException))
+    {
+        vmcb->InterceptMisc1 = interceptMisc1;
+        vmcb->InterceptException = interceptException;
         vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_I;
     }
 }
@@ -1624,7 +1627,7 @@ ShvSvmHandleHlt (
     if (((vmcb->Rflags & EFLAGS_INTERRUPT_FLAG) == 0) ||
         ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0) ||
         ((VpState->VpData->NmiReflectPending != 0) &&
-         (VpState->VpData->SvmNmiBlocked == FALSE)))
+         (VpState->VpData->SvmNmiState == SHV_SVM_NMI_UNBLOCKED)))
     {
         return;
     }
@@ -1718,9 +1721,7 @@ ShvSvmHandleExit (
         {
             vmcb->Dr6 |= DR6_BS;
             vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_DRX;
-            vmcb->EventInj = SVM_EVENTINJ_VALID |
-                             SVM_EVENTINJ_TYPE_EXCEPTION |
-                             INTR_INFO_VECTOR_DB;
+            ShvSvmInjectDebugException(VpState);
         }
     }
 

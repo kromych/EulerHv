@@ -202,18 +202,15 @@ typedef struct _SHV_VP_DATA
 
             //
             // SVM's view of the guest's NMI blocking, which the VMCB does not
-            // show without vNMI: whether the guest runs its NMI handler, and
-            // whether its IRET was intercepted, and at which RIP, which
-            // unblocks NMIs once the IRET completes. While single-stepping to
-            // an NMI window, the RIP, DR6 and whether the guest had TF set
-            // when the step began
+            // show without vNMI: whether the guest runs its NMI handler, or
+            // runs its IRET, which was intercepted at SvmNmiIretRip and
+            // unblocks NMIs once it completes. While single-stepping to an
+            // NMI window, DR6 and whether the guest had TF set when the step
+            // began
             //
-            UINT8 SvmNmiBlocked;
-            UINT8 SvmNmiIretSeen;
-            UINT8 SvmNmiStepping;
+            UINT8 SvmNmiState;
             UINT8 SvmNmiStepGuestTf;
             UINT64 SvmNmiIretRip;
-            UINT64 SvmNmiStepRip;
             UINT64 SvmNmiStepDr6;
 
             //
