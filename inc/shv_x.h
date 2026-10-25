@@ -195,9 +195,26 @@ typedef struct _SHV_VP_DATA
             //
             // Whether an NMI that is not a flush IPI waits to be passed on to
             // the guest, once it can take one. Set by its NMI exit or by the
-            // NMI gate in root mode, and cleared by the NMI window exit
+            // NMI gate in root mode, and cleared by the NMI window exit, or
+            // on SVM, which has none, once the NMI is injected
             //
             volatile long NmiReflectPending;
+
+            //
+            // SVM's view of the guest's NMI blocking, which the VMCB does not
+            // show without vNMI: whether the guest runs its NMI handler, and
+            // whether its IRET was intercepted, and at which RIP, which
+            // unblocks NMIs once the IRET completes. While single-stepping to
+            // an NMI window, the RIP, DR6 and whether the guest had TF set
+            // when the step began
+            //
+            UINT8 SvmNmiBlocked;
+            UINT8 SvmNmiIretSeen;
+            UINT8 SvmNmiStepping;
+            UINT8 SvmNmiStepGuestTf;
+            UINT64 SvmNmiIretRip;
+            UINT64 SvmNmiStepRip;
+            UINT64 SvmNmiStepDr6;
 
             //
             // Whether the guest's local APIC is in x2APIC mode, the ICR value

@@ -344,8 +344,8 @@ ShvVmxSetupVmcsForVp (
     //
     // Exit on NMIs, with virtual NMIs so that the guest's own NMI blocking
     // does not hold them off, as SimpleVisor's flush IPIs are NMIs that the
-    // guest must not take. Any other NMI halts for the debugger. The guest
-    // takes its interrupts directly. There may also be pin-based options
+    // guest must not take. Any other NMI is passed on to the guest. The
+    // guest takes its interrupts directly. There may also be pin-based options
     // required by the processor. Use ShvUtilAdjustMsr to add those in. The
     // probe made sure that the NMI controls are available
     //

@@ -61,9 +61,10 @@
     ;
     ; The idle IDT's NMI gate. Running the OS's NMI handler in root mode would
     ; run its code on the hypervisor stack, so take SimpleVisor's flush IPIs
-    ; here, with ShvVpHandleRootNmi, saving the volatile registers it may use.
-    ; Any other NMI breaks into the debugger and stops this processor, with
-    ; the interrupt frame and the registers on the stack for the debugger
+    ; here, with ShvVpHandleRootNmi, saving the volatile registers it may use,
+    ; which passes the guest's other NMIs on to it. An NMI that arrives
+    ; elsewhere breaks into the debugger and stops this processor, with the
+    ; interrupt frame and the registers on the stack for the debugger
     ;
     ; The processor aligns the stack before pushing the 5 qwords of the frame,
     ; so the 7 pushes below leave it aligned for the XMM saves and the call

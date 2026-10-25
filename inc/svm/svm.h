@@ -219,10 +219,12 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 //
 // Intercept word 1 (VMCB offset 0x00C) and word 2 (VMCB offset 0x010).
 // Intercepted NMIs are held pending until the VMM sets the GIF, which
-// delivers them through the VMM's IDT
+// delivers them through the VMM's IDT. The IRET intercept comes before the
+// IRET runs
 //
 #define SVM_INTERCEPT_NMI                      (1UL << 1)
 #define SVM_INTERCEPT_CPUID                     (1UL << 18)
+#define SVM_INTERCEPT_IRET                      (1UL << 20)
 #define SVM_INTERCEPT_INVD                      (1UL << 22)
 #define SVM_INTERCEPT_HLT                       (1UL << 24)
 #define SVM_INTERCEPT_INVLPGA                   (1UL << 26)
@@ -236,6 +238,11 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 #define SVM_INTERCEPT_CLGI                      (1UL << 5)
 #define SVM_INTERCEPT_SKINIT                    (1UL << 6)
 #define SVM_INTERCEPT_XSETBV                    (1UL << 13)
+
+//
+// Exception intercepts (VMCB offset 0x008), one bit per vector
+//
+#define SVM_INTERCEPT_EXCEPTION_DB              (1UL << 1)
 
 //
 // TLB_CONTROL (VMCB offset 0x05C). Value 1 flushes the entire TLB on VMRUN,
@@ -272,12 +279,14 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 
 //
 // SVM exit codes (VMCB offset 0x070). The codes match the intercept bit
-// positions, starting at 0x60 for the miscellaneous intercepts, so NMI
-// exits with 0x61
+// positions, starting at 0x40 for the exceptions and 0x60 for the
+// miscellaneous intercepts, so #DB exits with 0x41 and NMI with 0x61
 //
+#define VMEXIT_EXCEPTION_DB     0x41
 #define VMEXIT_NMI              0x61
 
 #define VMEXIT_CPUID            0x72
+#define VMEXIT_IRET             0x74
 #define VMEXIT_INVD             0x76
 #define VMEXIT_HLT              0x78
 #define VMEXIT_INVLPGA          0x7A
@@ -295,8 +304,9 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 
 //
 // VMCB EVENTINJ field format (offset 0x0A8). Type 0 is an external interrupt,
-// and type 3 a hardware exception. The error code occupies the upper 32 bits
-// when EV is set
+// type 2 an NMI, type 3 a hardware exception and type 4 a software
+// interrupt. The error code occupies the upper 32 bits when EV is set.
+// EXITINTINFO (offset 0x088) has the same format
 //
 // The processor clears V once VMRUN delivered the event, so an injected event
 // is delivered once, and the next VMRUN does not inject it again. KVM relies
@@ -305,6 +315,9 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 #define SVM_EVENTINJ_TYPE_INTR          (0 << 8)
 #define SVM_EVENTINJ_TYPE_NMI           (2 << 8)
 #define SVM_EVENTINJ_TYPE_EXCEPTION     (3 << 8)
+#define SVM_EVENTINJ_TYPE_SOFT_INTR     (4 << 8)
+#define SVM_EVENTINJ_TYPE_MASK          (7 << 8)
+#define SVM_EVENTINJ_VECTOR_MASK        0xFF
 #define SVM_EVENTINJ_DELIVER_ERROR_CODE (1 << 11)
 #define SVM_EVENTINJ_VALID              (1UL << 31)
 
@@ -332,8 +345,8 @@ typedef struct _SVM_VMCB
     {
         struct
         {
-            UINT8 ControlArea0[0x0C];           // 0x000: CR/DR intercepts,
-                                                //        exception bitmap
+            UINT8 ControlArea0[0x08];           // 0x000: CR/DR intercepts
+            UINT32 InterceptException;          // 0x008
             UINT32 InterceptMisc1;              // 0x00C
             UINT32 InterceptMisc2;              // 0x010
             UINT8 ControlArea1[0x34];           // 0x014

@@ -462,8 +462,9 @@ ShvSvmSetupVmcbForVp (
     // which VT-x always exits on, as it would throw away the cached writes
     // of the host along with the guest's. NMIs are intercepted too, as
     // SimpleVisor's flush IPIs are NMIs that the guest must not take, and
-    // any other NMI halts for the debugger. The guest takes its interrupts
-    // directly
+    // any other NMI is injected into the guest once it can take one. IRET
+    // and #DB are intercepted only to tell when that is. The guest takes its
+    // interrupts directly
     //
     vmcb->InterceptMisc1 = SVM_INTERCEPT_NMI |
                            SVM_INTERCEPT_CPUID |
@@ -921,12 +922,16 @@ ShvSvmInjectNmi (
     )
 {
     //
-    // Inject an NMI into the guest on the next VMRUN, on the explicit
-    // command of eulercheck. The guest's NMI handler takes it
+    // Have the guest's NMI handler take an NMI, on the explicit command of
+    // eulercheck. ShvSvmDeliverNmi injects it once the guest can take one,
+    // as it does for the NMIs passed on to the guest. An NMI cannot be
+    // injected into an NMI handler, so drop the injection then, as on VT-x
     //
-    VpState->VpData->Vmcb.EventInj = SVM_EVENTINJ_VALID |
-                                     SVM_EVENTINJ_TYPE_NMI |
-                                     INTR_INFO_VECTOR_NMI;
+    if (VpState->VpData->SvmNmiBlocked != FALSE)
+    {
+        return;
+    }
+    _InterlockedExchange(&VpState->VpData->NmiReflectPending, 1);
     VpState->VpData->IpiCounts[ShvIpiNmisInjected]++;
 }
 
@@ -974,14 +979,51 @@ ShvSvmReflectNmi (
     _In_ PSHV_VP_DATA VpData
     )
 {
-    UNREFERENCED_PARAMETER(VpData);
+    //
+    // Hold the NMI for the guest, which ShvSvmDeliverNmi injects once the
+    // guest can take one, before the next VMRUN. Root mode takes NMIs only
+    // while it sets the GIF in an exit handler, so this works from the NMI
+    // gate as well. NMIs coalesce while one is pending, as they do in
+    // hardware
+    //
+    _InterlockedExchange(&VpData->NmiReflectPending, 1);
+    VpData->IpiCounts[ShvIpiNmisReflected]++;
+    return TRUE;
+}
+
+static
+VOID
+ShvSvmReinjectEvent (
+    _In_ PSVM_VMCB Vmcb
+    )
+{
+    UINT64 event;
+    UINT32 type;
+    UINT32 vector;
 
     //
-    // SVM has no NMI window exit to tell when the guest can take an NMI, as
-    // EVENTINJ delivers one even inside the guest's NMI handler. That would
-    // take intercepting IRET, or vNMI, so halt for the debugger instead
+    // An exit during the delivery of an event, such as an NMI arriving while
+    // the guest takes an interrupt, leaves the event undelivered in
+    // EXITINTINFO, which has the EVENTINJ format. Deliver it on the next
+    // VMRUN. A software interrupt, and #BP and #OF, which INT3 and INTO
+    // raise, would return to the instruction that SimpleVisor cannot decode
+    // the length of, but RIP still points at it, so it runs again instead
     //
-    return FALSE;
+    event = Vmcb->ExitIntInfo;
+    if ((event & SVM_EVENTINJ_VALID) == 0)
+    {
+        return;
+    }
+
+    type = (UINT32)event & SVM_EVENTINJ_TYPE_MASK;
+    vector = (UINT32)event & SVM_EVENTINJ_VECTOR_MASK;
+    if ((type == SVM_EVENTINJ_TYPE_SOFT_INTR) ||
+        ((type == SVM_EVENTINJ_TYPE_EXCEPTION) &&
+         ((vector == INTR_INFO_VECTOR_BP) || (vector == INTR_INFO_VECTOR_OF))))
+    {
+        return;
+    }
+    Vmcb->EventInj = event;
 }
 
 VOID
@@ -991,15 +1033,199 @@ ShvSvmHandleNmi (
 {
     //
     // The NMI intercept leaves the NMI pending until the GIF is set, so take
-    // it through the NMI gate of the idle IDT. The gate flushes for
-    // SimpleVisor's flush IPIs, which the guest never sees, and halts for
-    // the debugger on any other NMI instead of dropping it, as a dropped NMI
-    // would hide whatever raised it, and SVM cannot pass it on to the guest
-    // yet (see ShvSvmReflectNmi). The exit is not tied to an instruction, so
-    // RIP stays where it is
+    // it through the NMI gate of the idle IDT, after delivering the event
+    // the NMI interrupted. The gate flushes for SimpleVisor's flush IPIs,
+    // which the guest never sees. Any other NMI is the guest's, such as the
+    // one Windows freezes the processors with for the debugger when one of
+    // them does not take the freeze IPI in time, so the gate passes it on.
+    // The exit is not tied to an instruction, so RIP stays where it is
     //
     VpState->SkipRipAdvance = TRUE;
+    ShvSvmReinjectEvent(&VpState->VpData->Vmcb);
     ShvSvmTakeHeldNmi(VpState->VpData);
+}
+
+VOID
+ShvSvmHandleIret (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSHV_VP_DATA vpData = VpState->VpData;
+
+    //
+    // The IRET intercept comes before the IRET runs. Resuming at it runs the
+    // IRET, as ShvSvmDeliverNmi turns the intercept off. Inside the guest's
+    // NMI handler NMIs stay blocked until that IRET completes, which the
+    // first exit past it tells. Outside of it, the guest can take an NMI
+    // here
+    //
+    VpState->SkipRipAdvance = TRUE;
+    if ((vpData->SvmNmiBlocked != FALSE) && (vpData->SvmNmiIretSeen == FALSE))
+    {
+        vpData->SvmNmiIretSeen = TRUE;
+        vpData->SvmNmiIretRip = vpData->Vmcb.Rip;
+    }
+}
+
+VOID
+ShvSvmHandleDebugException (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSHV_VP_DATA vpData = VpState->VpData;
+    PSVM_VMCB vmcb = &vpData->Vmcb;
+
+    //
+    // #DB is intercepted only while single-stepping to an NMI window, which
+    // this exit ended (see ShvSvmEndNmiStep). A single step that set no
+    // other DR6 bit is SimpleVisor's own, unless the guest single-steps as
+    // well, so give the guest back its DR6. Otherwise the guest takes the
+    // #DB. A single step is a trap, past the instruction, so RIP stays where
+    // it is
+    //
+    VpState->SkipRipAdvance = TRUE;
+    if ((vpData->SvmNmiStepGuestTf == FALSE) &&
+        ((vmcb->Dr6 & ~vpData->SvmNmiStepDr6) == DR6_BS))
+    {
+        vmcb->Dr6 = vpData->SvmNmiStepDr6;
+        vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_DRX;
+        return;
+    }
+    vmcb->EventInj = SVM_EVENTINJ_VALID |
+                     SVM_EVENTINJ_TYPE_EXCEPTION |
+                     INTR_INFO_VECTOR_DB;
+}
+
+static
+VOID
+ShvSvmEndNmiStep (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSHV_VP_DATA vpData = VpState->VpData;
+    PSVM_VMCB vmcb = &vpData->Vmcb;
+
+    //
+    // Any exit ends the single step to an NMI window, whether or not the
+    // step completed, as ShvSvmDeliverNmi looks at what holds the NMI off
+    // again before the next VMRUN. Clear the TF it set, unless the step ran
+    // the IRET of the guest's NMI handler, which loaded RFLAGS from the
+    // guest's stack
+    //
+    if (vpData->SvmNmiStepping == FALSE)
+    {
+        return;
+    }
+
+    vpData->SvmNmiStepping = FALSE;
+    vmcb->InterceptException &= ~SVM_INTERCEPT_EXCEPTION_DB;
+    vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_I;
+    if ((vpData->SvmNmiStepGuestTf == FALSE) &&
+        ((vpData->SvmNmiIretSeen == FALSE) || (vmcb->Rip == vpData->SvmNmiStepRip)))
+    {
+        vmcb->Rflags &= ~EFLAGS_TRAP_FLAG;
+    }
+    VpState->GuestEFlags = vmcb->Rflags;
+}
+
+static
+VOID
+ShvSvmDeliverNmi (
+    _In_ PSHV_VP_STATE VpState
+    )
+{
+    PSHV_VP_DATA vpData = VpState->VpData;
+    PSVM_VMCB vmcb = &vpData->Vmcb;
+    UINT32 intercepts;
+    UINT8 eventPending;
+    UINT8 step;
+
+    //
+    // SVM has no NMI window exit, and EVENTINJ delivers an NMI even inside
+    // the guest's NMI handler, and in the STI and MOV SS shadow. Without
+    // vNMI the VMCB does not show whether the guest blocks NMIs either, but
+    // the guest takes only the NMIs SimpleVisor injects, so it blocks them
+    // from the injection until the IRET of its NMI handler completes. The
+    // first exit past the intercepted IRET tells
+    //
+    // vNMI (CPUID 8000_000A EDX bit 25, Zen 4 and later) would be simpler,
+    // as the processor tracks the guest's NMI blocking and delivers a pending
+    // NMI once the guest can take it. It is not used, as whether nested
+    // Hyper-V and OpenVMM expose it is unknown, and this works without it
+    //
+    if ((vpData->SvmNmiIretSeen != FALSE) && (vmcb->Rip != vpData->SvmNmiIretRip))
+    {
+        vpData->SvmNmiIretSeen = FALSE;
+        vpData->SvmNmiBlocked = FALSE;
+    }
+
+    //
+    // Inject the pending NMI once the guest can take one and no other event
+    // is to be delivered
+    //
+    eventPending = ((vmcb->EventInj & SVM_EVENTINJ_VALID) != 0);
+    if ((vpData->NmiReflectPending != 0) &&
+        (vpData->SvmNmiBlocked == FALSE) &&
+        ((vmcb->InterruptShadow & SVM_INTERRUPT_SHADOW) == 0) &&
+        (eventPending == FALSE))
+    {
+        _InterlockedExchange(&vpData->NmiReflectPending, 0);
+        vmcb->EventInj = SVM_EVENTINJ_VALID |
+                         SVM_EVENTINJ_TYPE_NMI |
+                         INTR_INFO_VECTOR_NMI;
+        vpData->SvmNmiBlocked = TRUE;
+        eventPending = TRUE;
+    }
+
+    //
+    // Otherwise exit once the guest can take it. Inside its NMI handler that
+    // is past the handler's IRET, so intercept the IRET, and then single-step
+    // over it, as NMIs stay blocked until it completes. In the shadow, single-
+    // step the instruction it covers. With another event to deliver, intercept
+    // the IRET of that event's handler instead, as a single step would leave
+    // TF set in the frame the event pushes
+    //
+    intercepts = vmcb->InterceptMisc1 & ~SVM_INTERCEPT_IRET;
+    step = FALSE;
+    if (vpData->SvmNmiBlocked != FALSE)
+    {
+        if (vpData->SvmNmiIretSeen == FALSE)
+        {
+            intercepts |= SVM_INTERCEPT_IRET;
+        }
+        else if ((vpData->NmiReflectPending != 0) && (eventPending == FALSE))
+        {
+            step = TRUE;
+        }
+    }
+    else if (vpData->NmiReflectPending != 0)
+    {
+        if (eventPending != FALSE)
+        {
+            intercepts |= SVM_INTERCEPT_IRET;
+        }
+        else
+        {
+            step = TRUE;
+        }
+    }
+
+    if (intercepts != vmcb->InterceptMisc1)
+    {
+        vmcb->InterceptMisc1 = intercepts;
+        vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_I;
+    }
+
+    if (step != FALSE)
+    {
+        vpData->SvmNmiStepping = TRUE;
+        vpData->SvmNmiStepGuestTf = ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0);
+        vpData->SvmNmiStepRip = vmcb->Rip;
+        vpData->SvmNmiStepDr6 = vmcb->Dr6;
+        vmcb->Rflags |= EFLAGS_TRAP_FLAG;
+        vmcb->InterceptException |= SVM_INTERCEPT_EXCEPTION_DB;
+        vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_I;
+    }
 }
 
 VOID
@@ -1024,8 +1250,8 @@ ShvSvmHandleCpuid (
 
     //
     // Magic CPUID command to inject an NMI into this processor, which
-    // eulercheck uses to exercise the NMI path. The NMI delivers on the
-    // next VMRUN, after the CPUID completes
+    // eulercheck uses to exercise the NMI path. The NMI delivers once the
+    // CPUID completes and the guest can take it
     //
     if (((UINT32)VpState->VpRegs->Rax == SHV_CPUID_LEAF) &&
         ((UINT32)VpState->VpRegs->Rcx == SHV_CPUID_NMI))
@@ -1387,7 +1613,8 @@ ShvSvmHandleHlt (
     // Complete the guest's HLT by halting in the host until an interrupt
     // comes in, as VT-x does in root mode. An HLT with interrupts disabled
     // only waits for an NMI, so just resume then. Single-stepping the HLT
-    // resumes too, as EVENTINJ is taken by its #DB.
+    // resumes too, as EVENTINJ is taken by its #DB, and so does an NMI that
+    // waits for the guest, which wakes the HLT once injected.
     //
     // #VMEXIT cleared the GIF, which holds interrupts pending, so set it
     // while halted. Inject the interrupt into the guest on VMRUN, which ends
@@ -1395,7 +1622,9 @@ ShvSvmHandleHlt (
     // just resumes
     //
     if (((vmcb->Rflags & EFLAGS_INTERRUPT_FLAG) == 0) ||
-        ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0))
+        ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0) ||
+        ((VpState->VpData->NmiReflectPending != 0) &&
+         (VpState->VpData->SvmNmiBlocked == FALSE)))
     {
         return;
     }
@@ -1423,13 +1652,21 @@ ShvSvmHandleExit (
     // Unlike VT-x, nested Hyper-V does not force MONITOR and MWAIT exits, and
     // there is no activity state to fail VM entry on. HLT exits so that the
     // guest idles in the host, as on VT-x. NMIs exit through their intercept,
-    // for the flush IPIs and to halt for the debugger on any other, and the
-    // guest takes its interrupts directly
+    // for the flush IPIs and to pass any other on to the guest, and IRET and
+    // #DB to tell when the guest can take it. The guest takes its interrupts
+    // directly
     //
+    ShvSvmEndNmiStep(VpState);
     switch (VpState->ExitReason)
     {
     case VMEXIT_NMI:
         ShvSvmHandleNmi(VpState);
+        break;
+    case VMEXIT_IRET:
+        ShvSvmHandleIret(VpState);
+        break;
+    case VMEXIT_EXCEPTION_DB:
+        ShvSvmHandleDebugException(VpState);
         break;
     case VMEXIT_CPUID:
         ShvSvmHandleCpuid(VpState);
@@ -1485,6 +1722,15 @@ ShvSvmHandleExit (
                              SVM_EVENTINJ_TYPE_EXCEPTION |
                              INTR_INFO_VECTOR_DB;
         }
+    }
+
+    //
+    // Pass a pending NMI on to the guest, now that RIP, the shadow and the
+    // event to deliver are settled, unless the guest leaves SVM
+    //
+    if (VpState->ExitVm == FALSE)
+    {
+        ShvSvmDeliverNmi(VpState);
     }
 }
 

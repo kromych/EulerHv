@@ -281,6 +281,8 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 
 #define INTR_INFO_VECTOR_DB                     1
 #define INTR_INFO_VECTOR_NMI                    2
+#define INTR_INFO_VECTOR_BP                     3
+#define INTR_INFO_VECTOR_OF                     4
 #define INTR_INFO_VECTOR_UD                     6
 #define INTR_INFO_VECTOR_GP                     13
 #define INTR_INFO_TYPE_EXT_INTR                 (0 << 8)

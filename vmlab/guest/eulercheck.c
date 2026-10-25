@@ -231,8 +231,8 @@ ReportExitCounts (
 
 //
 // The NMI injection command: "eulercheck nmi" has SimpleVisor inject an NMI
-// into this processor, which the guest's NMI handler takes. SimpleVisor
-// halts on the other NMIs, so this is the only way the guest sees one
+// into this processor, which the guest's NMI handler takes. Otherwise the
+// guest sees only the NMIs that Windows sends, which SimpleVisor passes on
 //
 static
 INT32

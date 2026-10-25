@@ -84,10 +84,12 @@ The flush IPIs never reach the guest and the guest takes its own interrupts
 directly. Other NMIs are the guest's. Windows sends them to the other
 processors when it bugchecks and when it freezes them for the kernel debugger
 and one misses the freeze IPI which even a `DbgPrint` can cause with a
-debugger enabled. On VT-x, `Euler` passes them on once the guest can take an
-NMI. SVM has no NMI window exit so there any other NMI halts `Euler` for the
-debugger and a crash or a debugger freeze can leave the system halted without
-a crash dump.
+debugger enabled. `Euler` passes them on once the guest can take an NMI. On
+VT-x the NMI window exit tells. SVM has none and injects an NMI even inside
+the guest's NMI handler, so `Euler` tracks the guest's NMI blocking itself as
+the guest only takes the NMIs `Euler` injects. It intercepts the IRET of the
+guest's NMI handler and single-steps over it, and single-steps past the STI
+and MOV SS shadow.
 
 `Euler` emulates the address space switch hypercalls which Windows uses with
 KVA shadow by switching the guest's `CR3`.

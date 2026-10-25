@@ -88,8 +88,7 @@ typedef enum _ShvIpiCounter
     //
     // NMIs injected on the explicit command of vmlab\guest\eulercheck.c, and
     // NMIs that are not flush IPIs, which SimpleVisor passes on to the guest,
-    // such as those Windows freezes the processors with for the debugger.
-    // SVM halts for the debugger on those instead
+    // such as those Windows freezes the processors with for the debugger
     //
     ShvIpiNmisInjected,
     ShvIpiNmisReflected,

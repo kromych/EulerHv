@@ -207,9 +207,9 @@ ShvUtilBuildIdleIdt (
             IDT_FIRST_INTERRUPT * sizeof(KIDTENTRY64));
 
     //
-    // NMIs go to the gate that takes SimpleVisor's flush IPIs, and stops
-    // this processor for the debugger on any other NMI rather than run the
-    // OS's NMI handler in root mode
+    // NMIs go to the gate that takes SimpleVisor's flush IPIs, and passes
+    // any other NMI on to the guest, rather than run the OS's NMI handler in
+    // root mode
     //
     ShvUtilSetInterruptGate(&idt[IDT_NMI],
                             selector,
