@@ -1141,6 +1141,12 @@ ShvVmxEntryHandler (
         __writecr3(ShvVmxRead(GUEST_CR3));
 
         //
+        // Root mode runs without FRED (see ShvVmxSetupVmcsForVp), so return
+        // with the guest's CR4, which keeps VMXE until VMXOFF
+        //
+        __writecr4(ShvVmxRead(GUEST_CR4));
+
+        //
         // The VM-Exit set DR7 to 400h and cleared IA32_DEBUGCTL, so restore
         // the guest ones, keeping its hardware breakpoints
         //

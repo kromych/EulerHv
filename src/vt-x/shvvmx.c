@@ -212,18 +212,20 @@ ShvVmxEnterRootModeOnVp (
     VpData->EptPml4PhysicalAddress = ShvOsGetPhysicalAddress(&VpData->Epml4);
 
     //
-    // Update CR0 with the must-be-zero and must-be-one requirements
+    // Update CR0 with the must-be-zero and must-be-one requirements. The
+    // fixed-bit MSRs cover all 64 bits of the register
     //
-    Registers->Cr0 &= VpData->MsrData[7].LowPart;
-    Registers->Cr0 |= VpData->MsrData[6].LowPart;
+    Registers->Cr0 &= VpData->MsrData[7].QuadPart;
+    Registers->Cr0 |= VpData->MsrData[6].QuadPart;
 
     //
-    // Do the same for CR4, which sets VMXE. Remember whether it was clear, to
-    // clear it again after VMXOFF
+    // Do the same for CR4, which sets VMXE and keeps the bits from 32 up,
+    // such as FRED. Remember whether VMXE was clear, to clear it again after
+    // VMXOFF
     //
     VpData->VmxSetVmxe = (Registers->Cr4 & CR4_VMXE) == 0;
-    Registers->Cr4 &= VpData->MsrData[9].LowPart;
-    Registers->Cr4 |= VpData->MsrData[8].LowPart;
+    Registers->Cr4 &= VpData->MsrData[9].QuadPart;
+    Registers->Cr4 |= VpData->MsrData[8].QuadPart;
 
     //
     // Update host CR0 and CR4 based on the requirements above
@@ -499,9 +501,13 @@ ShvVmxSetupVmcsForVp (
     __vmx_vmwrite(GUEST_CR3, state->Cr3);
 
     //
-    // Load CR4
+    // Load CR4. With FRED, events are delivered through the OS's FRED entry
+    // points rather than through the IDT, so root mode would take its
+    // interrupts and NMIs in the OS's handlers instead of in the idle IDT.
+    // Root mode runs without FRED, and VM entry turns it back on for the
+    // guest, whose FRED MSRs root mode does not touch
     //
-    __vmx_vmwrite(HOST_CR4, state->Cr4);
+    __vmx_vmwrite(HOST_CR4, state->Cr4 & ~CR4_FRED);
     __vmx_vmwrite(GUEST_CR4, state->Cr4);
     __vmx_vmwrite(CR4_READ_SHADOW, state->Cr4);
 
