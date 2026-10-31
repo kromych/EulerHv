@@ -1109,23 +1109,28 @@ ShvSvmHandleDebugException (
 {
     PSHV_VP_DATA vpData = VpState->VpData;
     PSVM_VMCB vmcb = &vpData->Vmcb;
+    UINT64 stepDr6;
 
     //
     // #DB is intercepted only while single-stepping to an NMI window, which
-    // this exit ended (see ShvSvmEndNmiStep). A single step that set no
-    // other DR6 bit is SimpleVisor's own, unless the guest single-steps as
-    // well, so give the guest back its DR6. Otherwise the guest takes the
-    // #DB. A single step is a trap, past the instruction, so RIP stays where
+    // this exit ended (see ShvSvmEndNmiStep). The single step started with
+    // BS clear (see ShvSvmDeliverNmi). One that set no other DR6 bit is
+    // SimpleVisor's own, unless the guest single-steps as well, so give the
+    // guest back its DR6. Otherwise the guest takes the #DB, with the BS it
+    // had. A single step is a trap, past the instruction, so RIP stays where
     // it is
     //
+    stepDr6 = vpData->SvmNmiStepDr6 & ~DR6_BS;
     if ((vpData->SvmNmiStepGuestTf == FALSE) &&
-        ((vmcb->Dr6 & ~vpData->SvmNmiStepDr6) == DR6_BS))
+        ((vmcb->Dr6 & ~stepDr6) == DR6_BS))
     {
         vmcb->Dr6 = vpData->SvmNmiStepDr6;
         vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_DRX;
         VpState->SkipRipAdvance = TRUE;
         return;
     }
+    vmcb->Dr6 |= vpData->SvmNmiStepDr6 & DR6_BS;
+    vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_DRX;
     ShvSvmInjectDebugException(VpState);
 }
 
@@ -1143,7 +1148,9 @@ ShvSvmEndNmiStep (
     // step completed, as ShvSvmDeliverNmi looks at what holds the NMI off
     // again before the next VMRUN, and turns the #DB intercept off unless
     // it steps again. Clear the TF it set, unless the step ran the IRET of
-    // the guest's NMI handler, which loaded RFLAGS from the guest's stack
+    // the guest's NMI handler, which loaded RFLAGS from the guest's stack.
+    // Give the guest back the BS it cleared, unless this is the #DB, whose
+    // handler looks at BS first
     //
     if ((vmcb->InterceptException & SVM_INTERCEPT_EXCEPTION_DB) == 0)
     {
@@ -1157,6 +1164,13 @@ ShvSvmEndNmiStep (
         vmcb->Rflags &= ~EFLAGS_TRAP_FLAG;
     }
     VpState->GuestEFlags = vmcb->Rflags;
+
+    if ((VpState->ExitReason != VMEXIT_EXCEPTION_DB) &&
+        ((vpData->SvmNmiStepDr6 & DR6_BS) != 0))
+    {
+        vmcb->Dr6 |= DR6_BS;
+        vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_DRX;
+    }
 }
 
 static
@@ -1216,7 +1230,9 @@ ShvSvmDeliverNmi (
     // over it, as NMIs stay blocked until it completes. In the shadow, single-
     // step the instruction it covers. With another event to deliver, intercept
     // the IRET of that event's handler instead, as a single step would leave
-    // TF set in the frame the event pushes
+    // TF set in the frame the event pushes. Single-step with BS clear, as
+    // the guest may have left it set from a single step of its own, so that
+    // the #DB tells whether the step completed
     //
     interceptMisc1 = vmcb->InterceptMisc1 & ~SVM_INTERCEPT_IRET;
     interceptException = vmcb->InterceptException & ~SVM_INTERCEPT_EXCEPTION_DB;
@@ -1231,6 +1247,11 @@ ShvSvmDeliverNmi (
     {
         vpData->SvmNmiStepGuestTf = ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0);
         vpData->SvmNmiStepDr6 = vmcb->Dr6;
+        if ((vmcb->Dr6 & DR6_BS) != 0)
+        {
+            vmcb->Dr6 &= ~DR6_BS;
+            vmcb->VmcbCleanBits &= ~SVM_VMCB_CLEAN_DRX;
+        }
         vmcb->Rflags |= EFLAGS_TRAP_FLAG;
         interceptException |= SVM_INTERCEPT_EXCEPTION_DB;
     }
