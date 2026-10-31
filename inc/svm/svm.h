@@ -46,6 +46,7 @@ Environment:
 #define CPUID_SVM_FEATURES_EDX_FLUSH_BY_ASID    0x00000040
 #define CPUID_SVM_FEATURES_EDX_DECODE_ASSISTS   0x00000080
 #define CPUID_SVM_FEATURES_EDX_V_SPEC_CTRL      0x00100000
+#define CPUID_SVM_FEATURES_EDX_TLBI_CTL         0x01000000
 
 //
 // With V_SPEC_CTRL, VMRUN loads the guest SPEC_CTRL from the VMCB, and
@@ -258,6 +259,14 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 // shadow of STI or MOV SS
 //
 #define SVM_INTERRUPT_SHADOW                    (1UL << 0)
+
+//
+// Nested paging and other guest controls (VMCB offset 0x090). Without the
+// INVLPGB enable, which TLBI_CTL reports, the guest gets #UD on INVLPGB and
+// TLBSYNC
+//
+#define SVM_NP_ENABLE                           (1ULL << 0)
+#define SVM_NP_ENABLE_INVLPGB                   (1ULL << 7)
 
 //
 // VMCB clean bits (VMCB offset 0x0C0). A clear bit makes VMRUN reload the

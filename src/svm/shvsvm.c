@@ -505,9 +505,22 @@ ShvSvmSetupVmcbForVp (
     //
     if (VpData->NptPml4PhysicalAddress != 0)
     {
-        vmcb->NpEnable = 1;
+        vmcb->NpEnable = SVM_NP_ENABLE;
         vmcb->NCr3 = VpData->NptPml4PhysicalAddress;
         ShvVpSetSecondLevelRoot(VpData->ProcessorIndex, VpData->NptPml4PhysicalAddress);
+    }
+
+    //
+    // Let the guest run INVLPGB and TLBSYNC, which raise #UD in it otherwise.
+    // The OS found them in CPUID before SimpleVisor loaded, so hiding them
+    // now would not stop it from using them. INVLPGB in the guest flushes
+    // the guest's ASID whatever ASID it names, and every processor runs the
+    // guest on ASID 1, so it flushes the guest's translations everywhere, as
+    // it would without SimpleVisor
+    //
+    if ((VpData->SvmFeatures & CPUID_SVM_FEATURES_EDX_TLBI_CTL) != 0)
+    {
+        vmcb->NpEnable |= SVM_NP_ENABLE_INVLPGB;
     }
 
     //
@@ -771,7 +784,7 @@ ShvSvmEntryHandler (
         {
             __writemsr(MSR_SPEC_CTRL, vmcb->SpecCtrl);
         }
-        if (vmcb->NpEnable != 0)
+        if ((vmcb->NpEnable & SVM_NP_ENABLE) != 0)
         {
             __writemsr(MSR_PAT, vmcb->Pat);
         }
