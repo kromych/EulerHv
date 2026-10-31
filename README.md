@@ -120,6 +120,32 @@ the synthetic ICR counting the sending processor's own flushes. The processors
 received `40,210` of them. Its guest ran in xAPIC mode whose ICR `Euler` doesn't
 count.
 
+The same labs on an AMD host, Windows 11 25H2 on an AMD Ryzen 7 3700X, count
+`411,145` VM-exits under Hyper-V and `179,168` under OpenVMM, about `5,150` and
+`2,250` per processor per second. `Euler` prints SVM exit code `0x72` plus `n`
+as exit reason `n`, nested page faults as `28` and the other exit codes as
+`79`:
+
+| VM-exit (SVM exit code) | Hyper-V | OpenVMM | What `Euler` does |
+|---|---:|---:|---|
+| NMI (`0x61`) and others | `19,083` | `20,458` | Flushes the guest's mappings on a flush IPI that arrives while the guest runs |
+| CPUID (`0x72`) | `4,255` | `4,286` | Runs CPUID and adjusts the result, e.g. sets the Hypervisor Present-bit |
+| IRET (`0x74`) | `3` | `3` | Tells when the guest's NMI handler returns and it can take another NMI |
+| HLT (`0x78`) | `21,212` | `10,345` | Idles in Hyper-V's guest idle MSR |
+| MSR (`0x7C`) | `345,369` | `133,359` | Forwards the read or write of a synthetic MSR to Hyper-V as the MSR permission map doesn't cover them |
+| VMMCALL (`0x81`) | `21,223` | `10,717` | Forwards the hypercall to Hyper-V and flushes the guest's mappings on every processor after a TLB flush |
+
+Of the hypercalls, `6,898` flushed the TLB under Hyper-V (`189`
+`HvCallFlushVirtualAddressSpace` and `6,709` `HvCallFlushVirtualAddressList`) and `6,901`
+under OpenVMM (`244` and `6,657`). Neither Hyper-V on this host nor OpenVMM has
+the flush hypercall so `Euler` sent `27,444` and `27,582` flush IPIs counting the
+sending processor's own flushes. The processors received `20,546` and `20,681` of
+them. Hyper-V hides x2APIC from its guest on this host so the guest ran in xAPIC
+mode and the flush IPIs went through the synthetic ICR. The OpenVMM lab enables
+the x2APIC from boot so they went through the x2APIC ICR there, and the guest
+wrote neither the ICR nor the self IPI register. `Euler` passed `3` of the
+guest's own NMIs on under each.
+
 ## Testing and debugging
 
 * `vmlab` builds `Euler`, loads it in a Hyper-V, OpenVMM or VMware VM, checks the
