@@ -1610,6 +1610,8 @@ ShvSvmHandleHlt (
     )
 {
     PSVM_VMCB vmcb = &VpState->VpData->Vmcb;
+    KDESCRIPTOR hostIdtr;
+    KDESCRIPTOR idleIdtr;
     UINT32 vector;
 
     //
@@ -1619,10 +1621,13 @@ ShvSvmHandleHlt (
     // resumes too, as EVENTINJ is taken by its #DB, and so does an NMI that
     // waits for the guest, which wakes the HLT once injected.
     //
-    // #VMEXIT cleared the GIF, which holds interrupts pending, so set it
-    // while halted. Inject the interrupt into the guest on VMRUN, which ends
-    // the interrupt shadow of sti; hlt with the HLT. Without one the guest
-    // just resumes
+    // #VMEXIT cleared the GIF, which holds interrupts and NMIs pending, so set
+    // it while halted, with the idle IDT loaded around it as in
+    // ShvSvmTakeHeldNmi. A flush IPI that came along with the exit is taken
+    // as soon as the GIF is set, and through the OS's IDT its NMI handler
+    // would take it for a hardware failure. Inject the interrupt into the
+    // guest on VMRUN, which ends the interrupt shadow of sti; hlt with the
+    // HLT. Without one the guest just resumes
     //
     if (((vmcb->Rflags & EFLAGS_INTERRUPT_FLAG) == 0) ||
         ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0) ||
@@ -1632,9 +1637,14 @@ ShvSvmHandleHlt (
         return;
     }
 
+    idleIdtr.Base = VpState->VpData->IdleIdt;
+    idleIdtr.Limit = sizeof(VpState->VpData->IdleIdt) - 1;
+    __sidt(&hostIdtr.Limit);
+    __lidt(&idleIdtr.Limit);
     __svm_stgi();
     vector = ShvUtilIdle(VpState->VpData);
     __svm_clgi();
+    __lidt(&hostIdtr.Limit);
 
     if (vector != 0)
     {
