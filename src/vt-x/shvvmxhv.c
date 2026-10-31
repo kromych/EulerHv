@@ -44,9 +44,13 @@ ShvVmxOff (
     )
 {
     //
-    // Leave VMX operation, and clear CR4.VMXE if SimpleVisor set it. Other
-    // hypervisors take VMXE for VMX being in use, and do not load
+    // Clear the VMCS first, so that the processor writes back the VMCS data
+    // it may keep cached, which VMXOFF does not, before the VMCS is freed
+    // with the VP data. Then leave VMX operation, and clear CR4.VMXE if
+    // SimpleVisor set it. Other hypervisors take VMXE for VMX being in use,
+    // and do not load
     //
+    __vmx_vmclear(&VpData->VmcsPhysicalAddress);
     __vmx_off();
     if (VpData->VmxSetVmxe != FALSE)
     {
