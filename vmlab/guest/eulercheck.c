@@ -276,9 +276,8 @@ main (
     //
     // CPUID 1h: VMX, without which SimpleVisor cannot load on Intel, the
     // Hypervisor Present-bit, which SimpleVisor always sets, and x2APIC
-    // support (ECX bit 21), which the lab requires of the platform, as the
-    // flush IPIs need it. The full registers let the host scripts build a
-    // CPUID override for OpenVMM that forces x2APIC and keeps the rest
+    // support (ECX bit 21), which FirstLogon.ps1 checks the platform for. The
+    // full registers are only for reference
     //
     __cpuid(cpuInfo, 1);
     printf("vmx=%d\n", (cpuInfo[2] >> 5) & 1);

@@ -80,33 +80,12 @@ Invoke-NativeCommand -FilePath "$env:SystemRoot\System32\OpenSSH\ssh-keygen.exe"
 
 #
 # eulercheck.exe goes on the install media too, where FirstLogon.ps1 runs it
-# to enforce x2APIC, which the flush IPIs need
+# to check that the platform exposes x2APIC
 #
 $eulercheck = Join-Path $LabDefaults.OutDir 'eulercheck.exe'
 if (-not (Test-Path $eulercheck)) {
     throw "eulercheck.exe was not built to $($LabDefaults.OutDir). Run .\Build-LabArtifacts.ps1 first."
 }
-
-#
-# Force x2APIC (CPUID 1 ECX bit 21) into the guest with an explicit CPUID
-# override, keeping the host's other CPUID 1 bits. OpenVMM passes the host
-# CPUID through by default, which has the bit on capable hosts, and the
-# override makes the lab fail here rather than in the guest
-#
-$hostCpuid = & $eulercheck
-$getCpu = {
-    param ([string] $Key)
-    $line = $hostCpuid | Where-Object { $_ -match "^$Key=" } | Select-Object -First 1
-    if ($line) { [Convert]::ToUInt32(($line -replace "$Key=0x", ''), 16) } else { 0 }
-}
-$cpuid1Eax = & $getCpu 'cpuid1_eax'
-$cpuid1Ebx = & $getCpu 'cpuid1_ebx'
-$cpuid1Ecx = (& $getCpu 'cpuid1_ecx') -bor 0x200000
-$cpuid1Edx = & $getCpu 'cpuid1_edx'
-if ($cpuid1Eax -eq 0) {
-    throw 'Reading the host CPUID with eulercheck.exe failed, so the x2APIC override cannot be built.'
-}
-$OvmmDefaults.CpuidOverride = "1:0=$cpuid1Eax,$cpuid1Ebx,$cpuid1Ecx,$cpuid1Edx"
 
 $installIso = Get-OvmmLabFile 'install.iso'
 New-UnattendedIso -SourceIso $IsoPath -DestinationIso $installIso -ImageIndex $image.ImageIndex `

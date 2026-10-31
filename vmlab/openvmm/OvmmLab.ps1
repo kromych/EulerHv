@@ -71,6 +71,10 @@ function Get-OvmmArguments {
     # forwarded to the loopback interface, COM1 on a named pipe for the kernel
     # debugger, and the console over VNC on the loopback interface.
     #
+    # The x2APIC is enabled from the start: just offering it, OpenVMM's
+    # default, leaves Windows in xAPIC mode, which the Hyper-V lab already
+    # covers.
+    #
     # COM1 is a plain pipe by default, not in OpenVMM's "debugger-mode". That
     # mode throttles a guest that polls an empty receive FIFO, delaying each
     # status register read by 4 ms, but Windows KD waits for data in exactly
@@ -92,15 +96,9 @@ function Get-OvmmArguments {
         '--virtio-net', "pcie_port=rp1:consomme:hostfwd=tcp:127.0.0.1:$($OvmmDefaults.SshPort)-:22",
         '--com1', $com1,
         '--vnc', '--vnc-port', [string] $OvmmDefaults.VncPort,
+        '--x2apic', 'on',
         '--guest-shutdown-action', 'exit',
         '--log-file', (Get-OvmmLabFile "openvmm-$Mode.log"))
-    if ($OvmmDefaults.ContainsKey('CpuidOverride')) {
-        #
-        # The CPUID override that forces x2APIC, computed by
-        # New-OvmmLabVm.ps1 from the host's CPUID
-        #
-        $arguments += @('--cpuid', $OvmmDefaults.CpuidOverride)
-    }
     switch ($Mode) {
         'install' {
             $arguments += @('--gfx', '--vmbus-scsi', 'id=scsi0',
