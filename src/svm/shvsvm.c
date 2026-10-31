@@ -1638,6 +1638,20 @@ ShvSvmHandleVmmcall (
     }
 }
 
+static
+UINT8
+ShvSvmNmiWaits (
+    _In_ PSHV_VP_DATA VpData
+    )
+{
+    //
+    // Tell whether an NMI waits for a guest that can take it, which
+    // ShvSvmDeliverNmi then injects on the next VMRUN
+    //
+    return (VpData->NmiReflectPending != 0) &&
+           (VpData->SvmNmiState == SHV_SVM_NMI_UNBLOCKED);
+}
+
 VOID
 ShvSvmHandleHlt (
     _In_ PSHV_VP_STATE VpState
@@ -1659,14 +1673,15 @@ ShvSvmHandleHlt (
     // it while halted, with the idle IDT loaded around it as in
     // ShvSvmTakeHeldNmi. A flush IPI that came along with the exit is taken
     // as soon as the GIF is set, and through the OS's IDT its NMI handler
-    // would take it for a hardware failure. Inject the interrupt into the
-    // guest on VMRUN, which ends the interrupt shadow of sti; hlt with the
-    // HLT. Without one the guest just resumes
+    // would take it for a hardware failure. One of the guest's NMIs that came
+    // along is taken there too, and waits for the guest, so resume then
+    // rather than halt. Inject the interrupt into the guest on VMRUN, which
+    // ends the interrupt shadow of sti; hlt with the HLT. Without one the
+    // guest just resumes
     //
     if (((vmcb->Rflags & EFLAGS_INTERRUPT_FLAG) == 0) ||
         ((vmcb->Rflags & EFLAGS_TRAP_FLAG) != 0) ||
-        ((VpState->VpData->NmiReflectPending != 0) &&
-         (VpState->VpData->SvmNmiState == SHV_SVM_NMI_UNBLOCKED)))
+        (ShvSvmNmiWaits(VpState->VpData) != FALSE))
     {
         return;
     }
@@ -1676,7 +1691,11 @@ ShvSvmHandleHlt (
     __sidt(&hostIdtr.Limit);
     __lidt(&idleIdtr.Limit);
     __svm_stgi();
-    vector = ShvUtilIdle(VpState->VpData);
+    vector = 0;
+    if (ShvSvmNmiWaits(VpState->VpData) == FALSE)
+    {
+        vector = ShvUtilIdle(VpState->VpData);
+    }
     __svm_clgi();
     __lidt(&hostIdtr.Limit);
 
