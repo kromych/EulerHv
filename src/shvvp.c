@@ -55,7 +55,8 @@ static volatile UINT64* ShvVpSecondLevelRoots;
 // flush IPI is on its way to a processor, and none merges with another. An
 // NMI that finds NmiInFlight clear is not a flush IPI.
 //
-// VpData finds the processor from its stack pointer in the NMI gate
+// VpData finds the processor from its stack pointer in the NMI gate, from its
+// launch until it is back on the OS's IDT.
 //
 typedef struct DECLSPEC_ALIGN(64) _SHV_VP_FLUSH_TARGET
 {
@@ -191,11 +192,10 @@ ShvVpPublishFlushTarget (
 
     //
     // Called by the guest once it runs, as a flush IPI arriving before would
-    // be taken by the OS's NMI handler. The NMI gate needs VpData before the
-    // first flush IPI can arrive. Without an ICR that reaches this processor
-    // none can be sent at all
+    // be taken by the OS's NMI handler. The NMI gate has found this processor
+    // since its launch (see ShvVpLaunch). Without an ICR that reaches this
+    // processor none can be sent at all
     //
-    target->VpData = VpData;
     if (VpData->FlushIpiIcr != 0)
     {
         _InterlockedExchange64(&target->Icr, (INT64)VpData->FlushIpiIcr);
@@ -224,7 +224,10 @@ ShvVpWithdrawFlushTarget (
     }
 
     //
-    // Then take the flush IPI on its way, if any
+    // Then take the flush IPI on its way, if any. The NMI gate finds this
+    // processor until it is back on the OS's IDT (see ShvVpUnloadCallback),
+    // so an NMI that comes meanwhile goes to the guest that is leaving,
+    // which drops it, rather than stopping the processor
     //
     for (spins = 0;
          (target->NmiInFlight != 0) && (spins < SHV_FLUSH_IPI_DRAIN_SPINS);
@@ -233,7 +236,6 @@ ShvVpWithdrawFlushTarget (
         ShvArch->TakeHeldNmi(VpData);
         _mm_pause();
     }
-    target->VpData = NULL;
 }
 
 UINT8
@@ -619,12 +621,23 @@ ShvVpLaunch (
     ShvArch->Setup(VpData);
 
     //
+    // Let the NMI gate find this processor from the first exit on. Root mode
+    // takes NMIs through the idle IDT on VT-x, and through it SVM takes the
+    // NMIs held at an exit. Flush IPIs come only once the guest runs (see
+    // ShvVpPublishFlushTarget), so any NMI before then is the guest's, which
+    // the gate passes on to it
+    //
+    ShvVpFlushTargets[VpData->ProcessorIndex].VpData = VpData;
+
+    //
     // Launch the guest. This will cause the processor to jump to
     // ShvVpRestoreAfterLaunch on success, or return back to the caller on
-    // failure, when the second level identity map is no longer used
+    // failure, when neither the second level identity map nor the NMI gate
+    // is used any longer
     //
     status = ShvArch->Run(VpData);
     ShvVpSetSecondLevelRoot(VpData->ProcessorIndex, 0);
+    ShvVpFlushTargets[VpData->ProcessorIndex].VpData = NULL;
     return status;
 }
 
@@ -765,6 +778,12 @@ ShvVpUnloadCallback (
         vpData = (PSHV_VP_DATA)((UINT64)cpuInfo[0] << 32 | (UINT32)cpuInfo[1]);
         _interlockedbittestandreset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
         ShvVpSetSecondLevelRoot(vpData->ProcessorIndex, 0);
+
+        //
+        // The processor is back on the OS's IDT, so the NMI gate no longer
+        // looks for its VP data, which is freed below
+        //
+        ShvVpFlushTargets[vpData->ProcessorIndex].VpData = NULL;
         for (i = 0; i < SHV_EXIT_REASON_COUNT; i++)
         {
             _InterlockedExchangeAdd64(&Context->ExitCounts[i], (INT64)vpData->ExitCounts[i]);
