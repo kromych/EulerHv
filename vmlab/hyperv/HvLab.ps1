@@ -50,8 +50,12 @@ function Get-HvLabVm {
 }
 
 function Get-HvLabCredential {
+    #
+    # Name the guest's own account. From Windows PowerShell, PowerShell Direct
+    # can take a bare name for another, and refuse the credential
+    #
     $password = ConvertTo-SecureString -String $LabDefaults.AdminPassword -AsPlainText -Force
-    New-Object System.Management.Automation.PSCredential ($LabDefaults.AdminUser, $password)
+    New-Object System.Management.Automation.PSCredential (".\$($LabDefaults.AdminUser)", $password)
 }
 
 function Stop-HvLabVm {
