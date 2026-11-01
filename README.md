@@ -161,6 +161,18 @@ HLT exits:
 Windows runs the local APIC in x2APIC mode there. It wrote the ICR `778,481`
 and `836,282` times and the self IPI register `129,394` and `151,707` times.
 
+On bare metal on the AMD Ryzen 7 3700X with 16 logical processors, Windows 11
+Insider build 26300 and the Windows hypervisor and VBS turned off, `Euler` was
+loaded twice under the same load. That's `802,721` and `796,589` VM-exits:
+
+| VM-exit (SVM exit code) | First load | Second load | What `Euler` does |
+|---|---:|---:|---|
+| CPUID (`0x72`) | `799,291` | `796,589` | Runs CPUID and adjusts the result, e.g. sets the Hypervisor Present-bit |
+| MSR (`0x7C`) | `3,430` | `0` | Reads or writes EFER, VM_CR or VM_HSAVE_PA, hiding that SVM is on and showing it disabled by the firmware |
+
+Windows runs the local APIC in xAPIC mode there, whose ICR `Euler` doesn't
+intercept, and it didn't execute HLT while `Euler` was loaded.
+
 ## Testing and debugging
 
 * `vmlab` builds `Euler`, loads it in a Hyper-V, OpenVMM or VMware VM, checks the
