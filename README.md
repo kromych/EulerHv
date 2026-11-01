@@ -146,6 +146,21 @@ the x2APIC from boot so they went through the x2APIC ICR there, and the guest
 wrote neither the ICR nor the self IPI register. `Euler` passed `3` of the
 guest's own NMIs on under each.
 
+On bare metal, Windows 11 Insider build 26300 on an Intel Core i7-8550U with 8
+logical processors and with the Windows hypervisor and VBS turned off, `Euler`
+was loaded twice while every processor allocated and touched memory and
+started processes for 90 seconds. That's `1,208,919` and `1,301,868` VM-exits.
+Without Hyper-V there are no hypercalls to forward, no synthetic MSRs and no
+HLT exits:
+
+| VM-exit (VT-x exit reason) | First load | Second load | What `Euler` does |
+|---|---:|---:|---|
+| CPUID (`10`) | `301,044` | `313,879` | Runs CPUID and adjusts the result, e.g. sets the Hypervisor Present-bit |
+| WRMSR (`32`) | `907,875` | `987,989` | Counts the write to the x2APIC ICR or the self IPI register and writes it |
+
+Windows runs the local APIC in x2APIC mode there. It wrote the ICR `778,481`
+and `836,282` times and the self IPI register `129,394` and `151,707` times.
+
 ## Testing and debugging
 
 * `vmlab` builds `Euler`, loads it in a Hyper-V, OpenVMM or VMware VM, checks the
