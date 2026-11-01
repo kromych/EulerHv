@@ -293,6 +293,14 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 #define SVM_VMCB_CLEAN_ALL                      0xFFF
 
 //
+// Hyper-V's enlightenments of a nested guest, in the software reserved area
+// of the control area (VMCB offset 0x3E0). With the enlightened NPT TLB, a
+// flush of the guest's ASID flushes only its guest virtual translations, not
+// the guest physical ones that Hyper-V keeps for the nested page tables
+//
+#define SVM_HV_ENLIGHTENED_NPT_TLB              (1UL << 2)
+
+//
 // SVM exit codes (VMCB offset 0x070). The codes match the intercept bit
 // positions, starting at 0x40 for the exceptions and 0x60 for the
 // miscellaneous intercepts, so #DB exits with 0x41 and NMI with 0x61
@@ -385,7 +393,9 @@ typedef struct _SVM_VMCB
             UINT32 VmcbCleanBits;               // 0x0C0
             UINT32 ControlArea6;                // 0x0C4
             UINT64 NextRip;                     // 0x0C8
-            UINT8 ControlArea7[0x330];          // 0x0D0-0x3FF
+            UINT8 ControlArea7[0x310];          // 0x0D0
+            UINT32 HvEnlightenmentsControl;     // 0x3E0
+            UINT8 ControlArea8[0x1C];           // 0x3E4-0x3FF
 
             SVM_VMCB_SEGMENT Es;                // 0x400
             SVM_VMCB_SEGMENT Cs;                // 0x410

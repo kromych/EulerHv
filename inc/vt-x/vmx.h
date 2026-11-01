@@ -387,6 +387,13 @@ C_ASSERT(sizeof(MTRR_VARIABLE_MASK) == sizeof(UINT64));
 //
 #define HYPERV_NESTED_GUEST_MAPPING_FLUSH       0x00040000
 
+//
+// The CPUID 4000000Ah EAX bit offering the enlightened NPT TLB on AMD, which
+// keeps the nested guest's guest physical translations across its ASID
+// flushes
+//
+#define HYPERV_NESTED_ENLIGHTENED_NPT_TLB       0x00400000
+
 #define HYPERV_HYPERCALL_CODE_MASK              0xffff
 
 //

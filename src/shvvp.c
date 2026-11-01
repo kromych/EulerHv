@@ -505,13 +505,16 @@ ShvVpDetectUnderlyingHypervisor (
 
     //
     // Check whether Hyper-V can flush the guest's cached mappings on every
-    // processor, and keep the physical address of that hypercall's input
+    // processor, and keep the physical address of that hypercall's input.
+    // Check also whether it offers the enlightened NPT TLB
     //
     if (maxLeaf >= HYPERV_CPUID_NESTED_FEATURES)
     {
         __cpuid(cpuInfo, HYPERV_CPUID_NESTED_FEATURES);
         VpData->HyperVGuestMappingFlush =
             (cpuInfo[0] & HYPERV_NESTED_GUEST_MAPPING_FLUSH) != 0;
+        VpData->HyperVEnlightenedNptTlb =
+            (cpuInfo[0] & HYPERV_NESTED_ENLIGHTENED_NPT_TLB) != 0;
         VpData->GuestMappingFlushInputPhysicalAddress =
             ShvOsGetPhysicalAddress(VpData->GuestMappingFlushInput);
     }

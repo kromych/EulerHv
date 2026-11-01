@@ -518,6 +518,19 @@ ShvSvmSetupVmcbForVp (
         vmcb->NpEnable = SVM_NP_ENABLE;
         vmcb->NCr3 = VpData->NptPml4PhysicalAddress;
         ShvVpSetSecondLevelRoot(VpData->ProcessorIndex, VpData->NptPml4PhysicalAddress);
+
+        //
+        // SimpleVisor flushes the guest's ASID on every processor after each
+        // TLB flush hypercall of the guest (see ShvVpFlushGuestMappings).
+        // Hyper-V then also drops the guest physical translations it built
+        // from the nested page tables, which the guest faults back in at a
+        // cost. The identity map never changes, so where Hyper-V offers it,
+        // have it keep them
+        //
+        if (VpData->HyperVEnlightenedNptTlb != FALSE)
+        {
+            vmcb->HvEnlightenmentsControl = SVM_HV_ENLIGHTENED_NPT_TLB;
+        }
     }
 
     //

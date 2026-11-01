@@ -167,6 +167,12 @@ typedef struct _SHV_VP_DATA
             UINT8 HyperVGuestMappingFlush;
 
             //
+            // Whether Hyper-V offers the enlightened NPT TLB, which keeps the
+            // guest's guest physical translations across its ASID flushes
+            //
+            UINT8 HyperVEnlightenedNptTlb;
+
+            //
             // Whether Hyper-V lets SimpleVisor read the guest idle MSR, which
             // it idles in when the guest halts
             //
