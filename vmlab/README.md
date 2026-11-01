@@ -69,6 +69,27 @@ Underlying hypervisor: VMwareVMware (...); WAITPKG before/loaded: 1/1 (ok)
   ...
 ```
 
+The test also checks that the guest's desktop keeps responding while
+SimpleVisor loads, runs and unloads. `eulercheck ui` runs on the desktop of
+the automatic logon for 10 seconds and measures, every 20 ms, how late a high
+resolution timer wakes its thread and how long the taskbar and the web browser
+take to answer a message. The test shows the median, 99th percentile and worst
+of each, in milliseconds, also before loading and after unloading, and fails a
+phase where any message went unanswered, 1 in 100 took over 100 ms, or one
+took over a second:
+
+```
+Loading took 157 ms, unloading 30 ms
+UI before: wake 0.9/1.9/2.1, shell 0.3/1.1/31.7 ms
+UI loading: wake 1.2/2.2/59.4, shell 0.7/1.9/5.6 ms
+UI loaded: wake 0.6/1.4/3.2, shell 0.4/1.2/3.1, browser 0.3/1.5/10.9 ms
+UI unloading: wake 0.5/1.0/1.1, shell 0.2/0.6/3.2, browser 0.2/0.4/0.7 ms
+UI after: wake 0.5/1.0/1.1, shell 0.2/0.4/0.6, browser 0.2/0.5/0.8 ms
+  ...
+  PASS  Windows UI responsive while loading
+  ...
+```
+
 ### Picking an edition
 
 ISOs with several editions need the edition to install, given by name or by
@@ -297,7 +318,7 @@ cd vmlab\hyperv
 | `unattend\autounattend.xml` | The Windows Setup answer file template. |
 | `guest\FirstLogon.ps1` | Runs once in the new guest to set it up for SimpleVisor, and for VMware Tools, SSH or PowerShell Direct. |
 | `guest\Test-ShvGuest.ps1` | Runs in the guest for each test: load, probe, unload. |
-| `guest\eulercheck.c` | The guest probe, which reports the CPUID state that SimpleVisor affects, and its VM-Exit counters. |
+| `guest\eulercheck.c` | The guest probe, which reports the CPUID state that SimpleVisor affects, and its VM-Exit counters, and with `ui`, how the desktop responds. |
 
 ### The VM
 

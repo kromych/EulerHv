@@ -29,6 +29,53 @@ function Invoke-Phase {
     & (Join-Path $labDir 'eulercheck.exe') | ForEach-Object { Write-Result "$Phase.$_" }
 }
 
+function Start-UiProbe {
+    param ([string] $Phase)
+
+    #
+    # Measure how the desktop responds for 10 seconds with "eulercheck ui",
+    # which has to run on the desktop of the automatic logon, so start it there
+    # as the browser is. It runs once cmd has created its output file
+    #
+    $out = Join-Path $labDir "ui-$Phase.txt"
+    Remove-Item -Path $out -ErrorAction SilentlyContinue
+    $arguments = "/c `"`"$labDir\eulercheck.exe`" ui 10 > `"$out`" 2>&1`""
+    $action = New-ScheduledTaskAction -Execute $env:ComSpec -Argument $arguments
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\Administrator" -LogonType Interactive
+    Register-ScheduledTask -TaskName 'ShvLabUi' -Action $action -Principal $principal -Force | Out-Null
+    Start-ScheduledTask -TaskName 'ShvLabUi'
+    for ($i = 0; ($i -lt 20) -and -not (Test-Path $out); $i++) {
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+function Receive-UiProbe {
+    param ([string] $Phase)
+
+    #
+    # Wait for the last line of the probe's output. Select-String fails on a
+    # file that is not there yet, which would end a loop it is the condition
+    # of, so it goes in the loop
+    #
+    $out = Join-Path $labDir "ui-$Phase.txt"
+    $deadline = (Get-Date).AddSeconds(120)
+    while ((Get-Date) -lt $deadline) {
+        if ((Test-Path $out) -and (Select-String -Path $out -Pattern '^ui\.done=' -Quiet)) {
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+    Unregister-ScheduledTask -TaskName 'ShvLabUi' -Confirm:$false -ErrorAction SilentlyContinue
+    Get-Content -Path $out -ErrorAction SilentlyContinue | ForEach-Object { Write-Result "$Phase.$_" }
+}
+
+function Invoke-UiProbe {
+    param ([string] $Phase)
+
+    Start-UiProbe $Phase
+    Receive-UiProbe $Phase
+}
+
 function Get-BrowserCount {
     @(Get-Process -Name 'msedge' -ErrorAction SilentlyContinue).Count
 }
@@ -108,14 +155,20 @@ sc.exe delete $service 2>&1 | Out-Null
 sc.exe create $service type= kernel binPath= (Join-Path $labDir 'euler.sys') | Out-Null
 
 Invoke-Phase 'before'
+Invoke-UiProbe 'before'
 
 #
 # Loading virtualizes every processor. If SimpleVisor halts, this never returns,
-# and the host notices through its timeout.
+# and the host notices through its timeout. The desktop must keep responding
+# as it loads, so measure it across the load, and time the load
 #
+Start-UiProbe 'loading'
+$watch = [System.Diagnostics.Stopwatch]::StartNew()
 $output = sc.exe start $service 2>&1
 Write-Result "load.exit=$LASTEXITCODE"
+Write-Result "load.ms=$($watch.ElapsedMilliseconds)"
 Write-Result "load.output=$(($output | Where-Object { $_ }) -join ' | ')"
+Receive-UiProbe 'loading'
 
 #
 # Run a web browser while SimpleVisor is loaded, and keep it running across
@@ -128,14 +181,25 @@ Write-Result "browser.loaded=$(Get-BrowserCount)"
 
 Invoke-Phase 'loaded'
 
+#
+# The desktop must respond while SimpleVisor is loaded as it does once it is
+# unloaded, with the browser drawing all the while
+#
+Invoke-UiProbe 'loaded'
+
+Start-UiProbe 'unloading'
+$watch = [System.Diagnostics.Stopwatch]::StartNew()
 $output = sc.exe stop $service 2>&1
 Write-Result "unload.exit=$LASTEXITCODE"
+Write-Result "unload.ms=$($watch.ElapsedMilliseconds)"
 Write-Result "unload.output=$(($output | Where-Object { $_ }) -join ' | ')"
+Receive-UiProbe 'unloading'
 
 Start-Sleep -Seconds 15
 Write-Result "browser.after=$(Get-BrowserCount)"
 
 Invoke-Phase 'after'
+Invoke-UiProbe 'after'
 
 Stop-Browser
 Write-Result "browser.stopped=$(Get-BrowserCount)"

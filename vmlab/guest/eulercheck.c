@@ -9,8 +9,9 @@ Module Name:
 Abstract:
 
     This user-mode tool runs inside the lab VM and reports, from the guest's
-    point of view, the CPUID state that SimpleVisor affects. It prints one
-    "key=value" line per check, which Invoke-ShvTest.ps1 parses.
+    point of view, the CPUID state that SimpleVisor affects, and how the
+    desktop responds. It prints one "key=value" line per check, which
+    Invoke-ShvTest.ps1 parses.
 
 Author:
 
@@ -26,9 +27,12 @@ Environment:
 #include <intrin.h>
 #include <immintrin.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "..\..\inc\shvcheck.h"
+
+#pragma comment(lib, "user32.lib")
 
 static
 const char*
@@ -257,6 +261,196 @@ InjectNmi (
     return 0;
 }
 
+//
+// The UI probe: "eulercheck ui [seconds]" measures how the desktop responds,
+// so it must run on the desktop of the logged-on user, where Test-ShvGuest.ps1
+// starts it with a scheduled task. Every UI_PERIOD_MS, it measures how late a
+// high resolution timer wakes this thread, and the round trip of a message to
+// the taskbar and to the web browser's window, which their UI threads answer.
+// Messages that time out, or go to a window Windows takes as hung, count as
+// taking UI_TIMEOUT_MS
+//
+#define UI_PERIOD_MS        20
+#define UI_TIMEOUT_MS       2000
+#define UI_MAX_SECONDS      60
+#define UI_MAX_SAMPLES      (UI_MAX_SECONDS * 1000 / UI_PERIOD_MS)
+
+typedef struct _UI_SERIES
+{
+    const char* Name;
+    UINT32 Count;
+    UINT32 Timeouts;
+    UINT32 Microseconds[UI_MAX_SAMPLES];
+} UI_SERIES, *PUI_SERIES;
+
+static UI_SERIES UiWake = { "wake" };
+static UI_SERIES UiShell = { "shell" };
+static UI_SERIES UiBrowser = { "browser" };
+static LARGE_INTEGER UiFrequency;
+
+static
+UINT32
+UiMicroseconds (
+    _In_ LONGLONG Ticks
+    )
+{
+    if (Ticks <= 0)
+    {
+        return 0;
+    }
+    return (UINT32)min(Ticks * 1000000 / UiFrequency.QuadPart, MAXUINT32);
+}
+
+static
+VOID
+UiSampleWindow (
+    _In_ PUI_SERIES Series,
+    _In_opt_ HWND Window
+    )
+{
+    LARGE_INTEGER start;
+    LARGE_INTEGER end;
+    DWORD_PTR result;
+
+    if ((Window == NULL) || !IsWindow(Window) || (Series->Count >= UI_MAX_SAMPLES))
+    {
+        return;
+    }
+
+    QueryPerformanceCounter(&start);
+    if (SendMessageTimeoutW(Window, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, UI_TIMEOUT_MS, &result) == 0)
+    {
+        Series->Timeouts++;
+        Series->Microseconds[Series->Count++] = UI_TIMEOUT_MS * 1000;
+        return;
+    }
+    QueryPerformanceCounter(&end);
+    Series->Microseconds[Series->Count++] = UiMicroseconds(end.QuadPart - start.QuadPart);
+}
+
+static
+int
+__cdecl
+UiCompare (
+    const void* Left,
+    const void* Right
+    )
+{
+    UINT32 left = *(const UINT32*)Left;
+    UINT32 right = *(const UINT32*)Right;
+
+    return (left > right) - (left < right);
+}
+
+static
+VOID
+UiReport (
+    _In_ PUI_SERIES Series
+    )
+{
+    if (Series->Count == 0)
+    {
+        printf("ui.%s.samples=0\n", Series->Name);
+        return;
+    }
+
+    qsort(Series->Microseconds, Series->Count, sizeof(UINT32), UiCompare);
+    printf("ui.%s.samples=%u\n", Series->Name, Series->Count);
+    printf("ui.%s.timeouts=%u\n", Series->Name, Series->Timeouts);
+    printf("ui.%s.median_us=%u\n", Series->Name, Series->Microseconds[Series->Count / 2]);
+    printf("ui.%s.p99_us=%u\n", Series->Name, Series->Microseconds[Series->Count * 99 / 100]);
+    printf("ui.%s.max_us=%u\n", Series->Name, Series->Microseconds[Series->Count - 1]);
+}
+
+static
+BOOL
+CALLBACK
+UiFindBrowser (
+    _In_ HWND Window,
+    _In_ LPARAM Parameter
+    )
+{
+    WCHAR className[64];
+
+    //
+    // Edge's top-level windows, like those of other Chromium browsers
+    //
+    if (IsWindowVisible(Window) &&
+        (GetWindowTextLengthW(Window) != 0) &&
+        (GetClassNameW(Window, className, ARRAYSIZE(className)) != 0) &&
+        (wcscmp(className, L"Chrome_WidgetWin_1") == 0))
+    {
+        *(HWND*)Parameter = Window;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static
+INT32
+MeasureUi (
+    _In_ INT32 Seconds
+    )
+{
+    LARGE_INTEGER deadline;
+    LARGE_INTEGER start;
+    LARGE_INTEGER wait;
+    LARGE_INTEGER woke;
+    LARGE_INTEGER due;
+    HANDLE timer;
+    HWND browser;
+    HWND shell;
+
+    Seconds = max(1, min(Seconds, UI_MAX_SECONDS));
+    QueryPerformanceFrequency(&UiFrequency);
+
+    //
+    // A high resolution timer wakes up when due, rather than on the next
+    // clock tick, so its lateness is how long a thread whose event is due
+    // waits for a processor
+    //
+    timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (timer == NULL)
+    {
+        printf("ui.error=CreateWaitableTimerExW %lu\n", GetLastError());
+        printf("ui.done=1\n");
+        return 1;
+    }
+
+    shell = FindWindowW(L"Shell_TrayWnd", NULL);
+    browser = NULL;
+    EnumWindows(UiFindBrowser, (LPARAM)&browser);
+    printf("ui.shell=%d\n", shell != NULL);
+    printf("ui.browser=%d\n", browser != NULL);
+
+    QueryPerformanceCounter(&start);
+    deadline.QuadPart = start.QuadPart + Seconds * UiFrequency.QuadPart;
+    due.QuadPart = -(LONGLONG)UI_PERIOD_MS * 10000;
+    for (;;)
+    {
+        QueryPerformanceCounter(&wait);
+        if ((wait.QuadPart >= deadline.QuadPart) || (UiWake.Count >= UI_MAX_SAMPLES))
+        {
+            break;
+        }
+        SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE);
+        WaitForSingleObject(timer, INFINITE);
+        QueryPerformanceCounter(&woke);
+        UiWake.Microseconds[UiWake.Count++] =
+            UiMicroseconds(woke.QuadPart - wait.QuadPart - UI_PERIOD_MS * UiFrequency.QuadPart / 1000);
+
+        UiSampleWindow(&UiShell, shell);
+        UiSampleWindow(&UiBrowser, browser);
+    }
+    CloseHandle(timer);
+
+    UiReport(&UiWake);
+    UiReport(&UiShell);
+    UiReport(&UiBrowser);
+    printf("ui.done=1\n");
+    return 0;
+}
+
 int
 main (
     INT32 argc,
@@ -271,6 +465,11 @@ main (
     if ((argc > 1) && (strcmp(argv[1], "nmi") == 0))
     {
         return InjectNmi();
+    }
+
+    if ((argc > 1) && (strcmp(argv[1], "ui") == 0))
+    {
+        return MeasureUi((argc > 2) ? atoi(argv[2]) : 10);
     }
 
     //

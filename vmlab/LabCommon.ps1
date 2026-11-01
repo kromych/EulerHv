@@ -426,6 +426,30 @@ function Show-LabResult {
         param ([string] $Key)
         if ($Result.ContainsKey($Key)) { $Result[$Key] } else { '<missing>' }
     }
+
+    #
+    # The desktop responded if a due timer woke its thread, and the given
+    # windows answered every message, 99 in 100 times within 100ms and every
+    # time within a second, which leaves room for a nested guest's jitter but
+    # not for the desktop to freeze
+    #
+    $responsive = {
+        param ([string] $Phase, [string[]] $Windows)
+        if ((& $get "$Phase.ui.done") -ne '1') {
+            return $false
+        }
+        foreach ($name in @('wake') + $Windows) {
+            $p99 = & $get "$Phase.ui.$name.p99_us"
+            $max = & $get "$Phase.ui.$name.max_us"
+            if (((& $get "$Phase.ui.$name.samples") -notmatch '^[1-9]') -or
+                ((& $get "$Phase.ui.$name.timeouts") -ne '0') -or
+                ($p99 -notmatch '^\d+$') -or ([long] $p99 -gt 100000) -or
+                ($max -notmatch '^\d+$') -or ([long] $max -gt 1000000)) {
+                return $false
+            }
+        }
+        $true
+    }
     $checks = @(
         @{ Name = 'Guest test ran to completion';                       Pass = (& $get 'done') -eq '1' }
         @{ Name = 'Kernel debugging enabled on COM1 at 115200 baud';    Pass = ((& $get 'kd.debug') -eq 'Yes') -and ((& $get 'kd.debugtype') -eq 'Serial') -and
@@ -433,6 +457,7 @@ function Show-LabResult {
         @{ Name = 'Guest has VMX or SVM';                               Pass = ((& $get 'before.vmx') -eq '1') -or ((& $get 'before.svm') -eq '1') }
         @{ Name = 'SimpleVisor not detected before loading';            Pass = (& $get 'before.simplevisor') -eq '0' }
         @{ Name = 'sc start simplevisor succeeded';                     Pass = (& $get 'load.exit') -eq '0' }
+        @{ Name = 'Windows UI responsive while loading';                Pass = & $responsive 'loading' @('shell') }
         @{ Name = 'SimpleVisor detected while loaded';                  Pass = (& $get 'loaded.simplevisor') -eq '1' }
         @{ Name = 'Hypervisor Present-bit set while loaded';            Pass = (& $get 'loaded.hypervisor_present') -eq '1' }
         @{ Name = 'Hypervisor vendor leaf unchanged while loaded';      Pass = (& $get 'loaded.hv_vendor') -eq (& $get 'before.hv_vendor') }
@@ -443,7 +468,9 @@ function Show-LabResult {
         @{ Name = 'VM-Exit counters readable while loaded';             Pass = ((& $get 'loaded.exits.processors') -match '^[1-9]') -and
                                                                                ((& $get 'loaded.exits.total') -match '^[1-9]') }
         @{ Name = 'Web browser started while loaded';                   Pass = (& $get 'browser.loaded') -match '^[1-9]' }
+        @{ Name = 'Windows UI responsive while loaded';                 Pass = & $responsive 'loaded' @('shell', 'browser') }
         @{ Name = 'sc stop simplevisor succeeded';                      Pass = (& $get 'unload.exit') -eq '0' }
+        @{ Name = 'Windows UI responsive while unloading';              Pass = & $responsive 'unloading' @('shell', 'browser') }
         @{ Name = 'SimpleVisor not detected after unloading';           Pass = (& $get 'after.simplevisor') -eq '0' }
         @{ Name = 'Web browser kept running after unloading';           Pass = (& $get 'browser.after') -match '^[1-9]' }
         @{ Name = 'Web browser stopped';                                Pass = (& $get 'browser.stopped') -eq '0' }
@@ -477,6 +504,28 @@ function Show-LabResult {
                 ForEach-Object { "$(($_ -split '\.')[2]): $($Result[$_])" }
     if ($tlbCalls) {
         Write-Host ("TLB flush hypercalls while loaded: {0}" -f ($tlbCalls -join ', '))
+    }
+
+    #
+    # How long loading and unloading took, and how the desktop responded before,
+    # across and after them, and while loaded: how late a timer woke a thread,
+    # and how long the taskbar and the browser took to answer a message, as the
+    # median, 99th percentile and worst in milliseconds
+    #
+    Write-Host ("Loading took {0} ms, unloading {1} ms" -f (& $get 'load.ms'), (& $get 'unload.ms'))
+    foreach ($phase in 'before', 'loading', 'loaded', 'unloading', 'after') {
+        if ((& $get "$phase.ui.done") -ne '1') {
+            continue
+        }
+        $series = foreach ($name in 'wake', 'shell', 'browser') {
+            if ((& $get "$phase.ui.$name.samples") -match '^[1-9]') {
+                $ms = foreach ($stat in 'median', 'p99', 'max') {
+                    '{0:0.0}' -f ([double] (& $get "$phase.ui.$name.${stat}_us") / 1000)
+                }
+                "$name $($ms -join '/')"
+            }
+        }
+        Write-Host ("UI {0}: {1} ms" -f $phase, ($series -join ', '))
     }
     if ((& $get 'load.exit') -ne '0') {
         Write-Host "sc start: $(& $get 'load.output')"

@@ -181,6 +181,8 @@ intercept, and it didn't execute HLT while `Euler` was loaded.
 * The guest probe, `vmlab\guest\eulercheck.c`, prints the CPUID state `Euler`
   affects. It reads the counters `Euler` prints on unload through a magic CPUID
   leaf. `eulercheck nmi` has `Euler` inject an NMI into the guest.
+  `eulercheck ui` measures how the desktop responds, which the labs check as
+  `Euler` loads, runs and unloads.
 * On an exit it can't handle, `Euler` prints the exit and the guest state, saves
   them in the `Fatal*` fields of each processor's `SHV_VP_DATA` and breaks in.
 * `euler!ShvExitTrace` holds the last `4,096` exits on all processors plus
