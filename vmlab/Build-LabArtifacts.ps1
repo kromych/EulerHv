@@ -35,7 +35,9 @@ New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 # Build both binaries from one EWDK command prompt. The EWDK environment only
 # covers the kernel-mode build, so add the SDK's user-mode headers and libraries
 # for eulercheck.exe. Test signing is done separately below, as the project's own
-# signing step fails with the current signtool.
+# signing step fails with the current signtool. Warnings don't fail the build, as
+# newer toolchains bring new ones, even in the kits' own headers, so they are
+# shown after it.
 #
 $script = @"
 @echo off
@@ -43,7 +45,7 @@ call "$setupEnv" amd64 >nul 2>&1
 msbuild "$RepoRoot\vs\euler.vcxproj" /nologo /v:minimal /p:Configuration=NT /p:Platform=x64 /p:SignMode=Off || exit /b 1
 set "INCLUDE=%INCLUDE%;%WindowsSdkDir%Include\%Version_Number%\ucrt;%WindowsSdkDir%Include\%Version_Number%\um;%WindowsSdkDir%Include\%Version_Number%\shared"
 set "LIB=%LIB%;%WindowsSdkDir%Lib\%Version_Number%\ucrt\x64;%WindowsSdkDir%Lib\%Version_Number%\um\x64"
-cl /nologo /W4 /WX /O2 /MT "$PSScriptRoot\guest\eulercheck.c" /Fe:"$OutDir\eulercheck.exe" /Fo:"$OutDir\\" || exit /b 1
+cl /nologo /W4 /O2 /MT "$PSScriptRoot\guest\eulercheck.c" /Fe:"$OutDir\eulercheck.exe" /Fo:"$OutDir\\" || exit /b 1
 "@
 $scriptPath = Join-Path ([System.IO.Path]::GetTempPath()) "shvlab-build-$PID.cmd"
 [System.IO.File]::WriteAllText($scriptPath, $script)
@@ -53,6 +55,8 @@ try {
     if ($build.ExitCode -ne 0) {
         throw "The build failed:`n$($build.Output)"
     }
+    $build.Output -split "`r?`n" | Where-Object { $_ -match ': warning ' } |
+        ForEach-Object { $_.Trim() } | Sort-Object -Unique | ForEach-Object { Write-Warning $_ }
 }
 finally {
     Remove-Item -Path $scriptPath -ErrorAction SilentlyContinue
