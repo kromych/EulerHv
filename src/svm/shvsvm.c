@@ -500,6 +500,16 @@ ShvSvmSetupVmcbForVp (
     vmcb->TlbControl = SVM_TLB_CONTROL_FLUSH_ALL;
 
     //
+    // The guest takes its interrupts directly, with the OS's TPR, as
+    // V_INTR_MASKING is clear. The processor then ignores V_TPR, but Hyper-V
+    // runs a nested guest at the TPR in V_TPR, writing it back at each exit.
+    // Left at 0, the guest would resume at PASSIVE_LEVEL in the DPC that
+    // virtualizes this processor, and take DPC interrupts and switch threads
+    // in it, on the processor's DPC stack. So start it at the OS's TPR
+    //
+    vmcb->VirtualInterrupt = (UINT32)__readcr8() & SVM_V_TPR_MASK;
+
+    //
     // Enable nested paging and load the nested page table root, if the
     // processor supports it
     //

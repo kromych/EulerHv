@@ -255,6 +255,12 @@ static_assert(sizeof(SVM_NPT_LARGE_PDE) == sizeof(UINT64), "NPDE Size Mismatch")
 #define SVM_TLB_CONTROL_FLUSH_ASID              3
 
 //
+// Virtual interrupt controls (VMCB offset 0x060). V_TPR is the guest's TPR
+// when V_INTR_MASKING (bit 24) is set
+//
+#define SVM_V_TPR_MASK                          0xFUL
+
+//
 // INTERRUPT_SHADOW (VMCB offset 0x068). Set when the guest exited in the
 // shadow of STI or MOV SS
 //
@@ -363,7 +369,8 @@ typedef struct _SVM_VMCB
             UINT8 ControlArea2[0x08];           // 0x050: TSC offset
             UINT32 GuestAsid;                   // 0x058
             UINT32 TlbControl;                  // 0x05C
-            UINT8 ControlArea3[0x08];           // 0x060: virtual interrupt
+            UINT32 VirtualInterrupt;            // 0x060
+            UINT32 VirtualInterruptVector;      // 0x064
             UINT32 InterruptShadow;             // 0x068
             UINT32 ControlArea3_;               // 0x06C
             UINT64 ExitCode;                    // 0x070
