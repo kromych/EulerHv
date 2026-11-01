@@ -533,6 +533,9 @@ function Show-LabResult {
     if ($Result.ContainsKey('browser.output')) {
         Write-Host "Web browser: $(& $get 'browser.output')"
     }
+    if ($Result.ContainsKey('browser.crash')) {
+        Write-Host "Web browser crashed: $(& $get 'browser.crash')"
+    }
     if (((& $get 'before.vmx') -ne '1') -and ((& $get 'before.svm') -ne '1')) {
         Write-Warning "The guest has neither VMX nor SVM, so SimpleVisor cannot load in it. $NoVmxHint"
     }

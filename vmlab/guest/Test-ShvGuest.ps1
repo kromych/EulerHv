@@ -5,6 +5,7 @@
 #
 
 $ErrorActionPreference = 'Continue'
+$testStart = Get-Date
 $labDir = 'C:\vmlab'
 $resultFile = Join-Path $labDir 'result.txt'
 $service = 'simplevisor'
@@ -197,6 +198,17 @@ Receive-UiProbe 'unloading'
 
 Start-Sleep -Seconds 15
 Write-Result "browser.after=$(Get-BrowserCount)"
+
+#
+# Record how the browser crashed, if it did, from the application errors
+# Windows logged during the test
+#
+$crashes = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $testStart } -ErrorAction SilentlyContinue |
+           Where-Object { $_.Properties[0].Value -eq 'msedge.exe' } | Select-Object -First 3 |
+           ForEach-Object { "$($_.Properties[3].Value) exception $($_.Properties[6].Value) at $($_.Properties[7].Value)" }
+if ($crashes) {
+    Write-Result "browser.crash=$($crashes -join ' | ')"
+}
 
 Invoke-Phase 'after'
 Invoke-UiProbe 'after'
