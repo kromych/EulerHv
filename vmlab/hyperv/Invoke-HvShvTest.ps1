@@ -22,7 +22,7 @@
 
 .PARAMETER SkipDebuggerCheck
     Do not check that the kernel debugger can attach over the VM's serial pipe
-    before loading SimpleVisor.
+    after the test.
 
 .PARAMETER AttachDebugger
     Keep kd attached over the serial pipe for the whole test, in its own
@@ -67,17 +67,26 @@ Restore-VMCheckpoint -VM $vm -Name $LabDefaults.Snapshot -Confirm:$false
 Start-VM -VM $vm
 Wait-HvGuest -TimeoutSec $BootTimeoutSec
 
-$kdCheck = $null
-if ($AttachDebugger -or -not $SkipDebuggerCheck) {
+#
+# Once kd has broken in and gone, the guest's next debug output waits for it
+# for about 80 seconds, which would hold up loading SimpleVisor, as it prints.
+# So check the debugger after the test, unless kd stays attached
+#
+$checkDebugger = {
     Write-Host 'Checking that the kernel debugger can break in over the serial pipe...'
-    $kdCheck = Test-HvKernelDebugger -KeepAttached:$AttachDebugger
-    if ($kdCheck.Connected -and $kdCheck.Resumed) {
-        Write-Host "  connected: $($kdCheck.Target)"
+    $check = Test-HvKernelDebugger -KeepAttached:$AttachDebugger
+    if ($check.Connected -and $check.Resumed) {
+        Write-Host "  connected: $($check.Target)"
     }
     else {
         Write-Warning 'kd could not break into the guest; see the kd log below.'
-        Write-Host $kdCheck.Log
+        Write-Host $check.Log
     }
+    $check
+}
+$kdCheck = $null
+if ($AttachDebugger) {
+    $kdCheck = & $checkDebugger
 }
 
 Write-Host 'Copying the test files into the guest...'
@@ -122,6 +131,9 @@ if ($run.TimedOut) {
 $resultFile = Get-HvLabFile 'result.txt'
 Remove-Item -Path $resultFile -ErrorAction SilentlyContinue
 Copy-HvFromGuest -Path "$GuestLabDir\result.txt" -Destination $resultFile
+if ((-not $AttachDebugger) -and (-not $SkipDebuggerCheck)) {
+    $kdCheck = & $checkDebugger
+}
 
 $failed = Show-LabResult -Result (Read-LabResult -Path $resultFile) -ResultFile $resultFile -KdCheck $kdCheck `
                          -NoVmxHint 'Hyper-V was expected to expose it (ExposeVirtualizationExtensions); see Get-VMProcessor.'

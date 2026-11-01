@@ -26,7 +26,7 @@
 
 .PARAMETER SkipDebuggerCheck
     Do not check that the kernel debugger can attach over the VM's serial pipe
-    before loading SimpleVisor.
+    after the test.
 
 .PARAMETER AttachDebugger
     Keep kd attached over the serial pipe for the whole test, in its own
@@ -76,18 +76,27 @@ $display = if ($Gui) { 'gui' } else { 'nogui' }
 Invoke-VmRun -Arguments @('start', $vmxPath, $display) | Out-Null
 Wait-LabGuest -Vmx $vmxPath
 
-$kdCheck = $null
-if ($AttachDebugger -or -not $SkipDebuggerCheck) {
+#
+# Once kd has broken in and gone, the guest's next debug output waits for it
+# for about 80 seconds, which would hold up loading SimpleVisor, as it prints.
+# So check the debugger after the test, unless kd stays attached
+#
+$checkDebugger = {
     Write-Host 'Checking that the kernel debugger can break in over the serial pipe...'
-    $kdCheck = Test-LabKernelDebugger -Vmx $vmxPath -KeepAttached:$AttachDebugger `
-                                      -LogPath (Join-Path $outDir 'kd-attached.log')
-    if ($kdCheck.Connected -and $kdCheck.Resumed) {
-        Write-Host "  connected: $($kdCheck.Target)"
+    $check = Test-LabKernelDebugger -Vmx $vmxPath -KeepAttached:$AttachDebugger `
+                                    -LogPath (Join-Path $outDir 'kd-attached.log')
+    if ($check.Connected -and $check.Resumed) {
+        Write-Host "  connected: $($check.Target)"
     }
     else {
         Write-Warning 'kd could not break into the guest; see the kd log below.'
-        Write-Host $kdCheck.Log
+        Write-Host $check.Log
     }
+    $check
+}
+$kdCheck = $null
+if ($AttachDebugger) {
+    $kdCheck = & $checkDebugger
 }
 
 Write-Host 'Copying the test files into the guest...'
@@ -138,6 +147,9 @@ if ($run.TimedOut) {
 $resultFile = Join-Path $outDir 'result.txt'
 Remove-Item -Path $resultFile -ErrorAction SilentlyContinue
 Invoke-VmRun -Guest -TimeoutSec 120 -Arguments @('copyFileFromGuestToHost', $vmxPath, "$GuestLabDir\result.txt", $resultFile) | Out-Null
+if ((-not $AttachDebugger) -and (-not $SkipDebuggerCheck)) {
+    $kdCheck = & $checkDebugger
+}
 
 $failed = Show-LabResult -Result (Read-LabResult -Path $resultFile) -ResultFile $resultFile -KdCheck $kdCheck `
                          -NoVmxHint ('The VM was created without virtualized VT-x/EPT, because the host runs a ' +

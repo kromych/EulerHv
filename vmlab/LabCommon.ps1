@@ -605,6 +605,12 @@ function Test-LabKernelDebugger {
     # kd got to send "g", which can take a while. KD tolerates the debugger
     # coming and going, so the pipe stays usable for Connect-LabDebugger.ps1.
     #
+    # The target takes the debugger as still attached, though, so its next
+    # debug output waits for it until the retries run out, for about 80
+    # seconds, stalling that processor. Detaching with "qd" does not change
+    # that, so check after the guest's debug output that matters, or keep kd
+    # attached.
+    #
     # TestGuest tells whether the guest responds, and defaults to a VMware
     # guest operation on the given VM. It runs only in here, where it sees
     # $Vmx. A closure would not: it only sees the global scope, and not the

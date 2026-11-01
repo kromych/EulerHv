@@ -98,13 +98,19 @@ the OpenVMM lab, which can nest VT-x on such hosts.
 
 The guest has kernel debugging enabled on COM1 at 115200 baud. VMware connects
 COM1 to the host pipe `\\.\pipe\SimpleVisorLab`, with the VM as the pipe server.
-Before each test, `Invoke-ShvTest.ps1` checks that this works, unless you pass
+After each test, `Invoke-ShvTest.ps1` checks that this works, unless you pass
 `-SkipDebuggerCheck`. The check takes about 10 seconds:
 
 1. It breaks into the guest by writing the KD break-in byte to the pipe. kd's
    own `-b` misses a running target too often over this pipe.
 2. kd attaches, identifies the target (`vertarget`) and resumes it (`g`).
 3. The check confirms with a guest operation that the guest runs again.
+
+The guest then takes the debugger as attached, and its next debug output waits
+for it until the retries run out, for about 80 seconds, stalling that
+processor. Detaching with `qd` doesn't change that. SimpleVisor prints as it
+loads, which held up loading for that long, so the check comes after the test,
+unless `-AttachDebugger` keeps kd attached for it.
 
 The guest test also checks the guest's BCD debug settings.
 
