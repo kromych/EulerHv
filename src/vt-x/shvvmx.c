@@ -520,7 +520,7 @@ ShvVmxSetupVmcsForVp (
     //
     // Finally, load the guest stack, instruction pointer, and rflags, which
     // corresponds exactly to the location where RtlCaptureContext will return
-    // to inside of ShvVpInitialize.
+    // to inside of ShvVpLaunch.
     //
     // ShvVpRestoreAfterLaunch briefly runs on the hypervisor stack, so enter
     // it with interrupts off. An exiting instruction in an ISR there would

@@ -616,6 +616,32 @@ ShvVpLaunch (
     }
 
     //
+    // Then, capture the entire register state. We will need this, as once we
+    // launch the VM, it will begin execution at the defined guest instruction
+    // pointer, which we set to ShvVpRestoreAfterLaunch, with the registers set
+    // to whatever value they were deep inside the VMCS/VMX initialization code.
+    // That function marks this processor as virtualized and returns here with
+    // our registers restored.
+    //
+    // The guest returns through this frame and its callers', restoring the
+    // registers they saved, so capture here, in the frame that launches. It
+    // stays live through the launch, as it has work left should the launch
+    // fail. Captured in a caller, a tail call to this routine would reuse the
+    // caller's frame, and overwrite the registers saved there before the
+    // guest restores them
+    //
+    ShvOsCaptureContext(&VpData->ContextFrame);
+    if (ShvIsOurHypervisorPresent() != FALSE)
+    {
+        //
+        // The guest runs, back on the OS's stack, so this processor can take
+        // flush IPIs from now on
+        //
+        ShvVpPublishFlushTarget(VpData);
+        return SHV_STATUS_SUCCESS;
+    }
+
+    //
     // Initialize the guest and host state.
     //
     ShvArch->Setup(VpData);
@@ -662,7 +688,7 @@ ShvVpRestoreAfterLaunch (
                             KERNEL_STACK_SIZE);
 
     //
-    // Mark this processor as virtualized, which tells ShvVpInitialize that the
+    // Mark this processor as virtualized, which tells ShvVpLaunch that the
     // launch happened. The index comes from the VP data as no stack is used
     //
     _interlockedbittestandset(ShvVpVirtualizedBitmap, vpData->ProcessorIndex);
@@ -710,35 +736,10 @@ ShvVpInitialize (
     ShvCaptureSpecialRegisters(&Data->SpecialRegisters);
 
     //
-    // Then, capture the entire register state. We will need this, as once we
-    // launch the VM, it will begin execution at the defined guest instruction
-    // pointer, which we set to ShvVpRestoreAfterLaunch, with the registers set
-    // to whatever value they were deep inside the VMCS/VMX initialization code.
-    // That function marks this processor as virtualized and returns here with
-    // our registers restored by RtlRestoreContext.
+    // Attempt to launch the VM on this processor. If it returns success, the
+    // hypervisor is running :-)
     //
-    ShvOsCaptureContext(&Data->ContextFrame);
-    if (ShvIsOurHypervisorPresent() == FALSE)
-    {
-        //
-        // If this processor is not marked as virtualized, we have not launched
-        // the VM yet. Attempt to launch it on this processor.
-        //
-        status = ShvVpLaunch(Data);
-    }
-    else
-    {
-        //
-        // The guest runs, back on the OS's stack, so this processor can take
-        // flush IPIs from now on
-        //
-        ShvVpPublishFlushTarget(Data);
-    }
-
-    //
-    // If we got here, the hypervisor is running :-)
-    //
-    return status;
+    return ShvVpLaunch(Data);
 }
 
 VOID

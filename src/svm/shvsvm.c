@@ -834,7 +834,7 @@ ShvSvmLaunch (
     __svm_vmsave(VpData->HostVmcbPhysicalAddress);
 
     //
-    // Start the guest with the registers captured in ShvVpInitialize. The host
+    // Start the guest with the registers captured in ShvVpLaunch. The host
     // runs on the hypervisor stack, with interrupts off
     //
     frame = (PSHV_SVM_HOST_FRAME)(VpData->ShvStackLimit + KERNEL_STACK_SIZE) - 1;
@@ -857,7 +857,7 @@ ShvSvmLaunch (
     if (VpData->SvmLaunchFailed == FALSE)
     {
         //
-        // The guest resumes in ShvVpInitialize, which checks that this
+        // The guest resumes in ShvVpLaunch, which checks that this
         // processor is virtualized, and makes it a flush IPI target
         //
         __writecr3(VpData->SystemDirectoryTableBase);
