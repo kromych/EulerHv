@@ -13,6 +13,7 @@ Abstract:
 Author:
 
     Alex Ionescu (@aionescu) 16-Mar-2016 - Initial version
+    kromych (vdso@mailbox.org) 01-Feb-2026 - EPT memory types, Hyper-V nesting
 
 Environment:
 

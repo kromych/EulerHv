@@ -13,6 +13,7 @@ Abstract:
 Author:
 
     Alex Ionescu (@aionescu) 14-Mar-2016 - Initial version
+    kromych (vdso@mailbox.org) 07-Feb-2026 - Backend interface, flush IPIs, idle
 
 Environment:
 

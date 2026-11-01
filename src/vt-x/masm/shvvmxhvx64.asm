@@ -13,6 +13,7 @@
 ; Author:
 ;
 ;    Alex Ionescu (@aionescu) 16-Mar-2016 - Initial version
+;    kromych (vdso@mailbox.org) 06-Feb-2026 - Hypercalls, INVEPT and INVVPID
 ;
 ; Environment:
 ;

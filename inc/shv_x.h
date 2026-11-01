@@ -14,6 +14,7 @@ Abstract:
 Author:
 
     Alex Ionescu (@aionescu) 29-Aug-2016 - Initial version
+    kromych (vdso@mailbox.org) 07-Feb-2026 - SVM, Hyper-V nesting and flush IPIs
 
 Environment:
 

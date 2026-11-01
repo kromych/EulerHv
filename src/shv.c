@@ -13,6 +13,7 @@ Abstract:
 Author:
 
     Alex Ionescu (@aionescu) 16-Mar-2016 - Initial version
+    kromych (vdso@mailbox.org) 27-Feb-2026 - Backends and VM-Exit counts
 
 Environment:
 

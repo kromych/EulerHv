@@ -13,6 +13,7 @@ Abstract:
 Author:
 
     Alex Ionescu (@aionescu) 16-Mar-2016 - Initial version
+    kromych (vdso@mailbox.org) 21-Mar-2026 - MTRR types, idle and exit trace
 
 Environment:
 

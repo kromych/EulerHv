@@ -13,6 +13,7 @@
 ; Author:
 ;
 ;    Alex Ionescu (@aionescu) 16-Mar-2016 - Initial version
+;    kromych (vdso@mailbox.org) 03-Feb-2026 - Save and restore XMM and MXCSR
 ;
 ; Environment:
 ;
