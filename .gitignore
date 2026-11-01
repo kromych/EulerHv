@@ -1,5 +1,6 @@
 x64/
 out/
+investigations/
 .vs
 .VC.db
 *.vcxproj.user
